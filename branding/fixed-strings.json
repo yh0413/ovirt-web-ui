@@ -1,9 +1,9 @@
 {
-  "BRAND_NAME": "oVirt",
-  "LEGAL_INFO": "Released under",
+  "BRAND_NAME": "HyperVM",
+  "LEGAL_INFO": "",
   "LEGAL_INFO_LINK_TEXT": "Apache License 2.0",
-  "LEGAL_INFO_LINK_URL": "https://github.com/oVirt/ovirt-web-ui/blob/master/LICENSE",
-  "DOCUMENTATION_LINK": "https://ovirt.org/documentation",
-  "ISSUES_TRACKER_URL": "https://github.com/oVirt/ovirt-web-ui/issues",
-  "ISSUES_TRACKER_TEXT": "Github Issue Tracker"
+  "LEGAL_INFO_LINK_URL": "",
+  "DOCUMENTATION_LINK": "",
+  "ISSUES_TRACKER_URL": "",
+  "ISSUES_TRACKER_TEXT": ""
 }
