@@ -2,7 +2,7 @@ name: rpm-build
 
 on:
   pull_request:
-    branches: [ supervm-main ]
+    branches: [supervm-main, supervm-releases/**]
   
 jobs:
   build:
@@ -24,6 +24,9 @@ jobs:
       - name: Setup job yaml 
         run: |
           sed -e "s#{{ PR_NUMBER }}#${{ steps.vars.outputs.PR_NUMBER }}#g" ${{ steps.vars.outputs.TEMPLATE_FILE }} > ${{ steps.vars.outputs.JOB_FILE }}
+          sed -i "s#{{ GITHUB_REF }}##g" ${{ steps.vars.outputs.JOB_FILE }}
+          sed -i "s#{{ OVIRT_REPO }}#http://172.21.7.2/supervm/21.0.1/prolinux/8/arch/x86_64/#g" ${{ steps.vars.outputs.JOB_FILE }}
+          sed -i "s#{{ TARGET_DIR }}##g" ${{ steps.vars.outputs.JOB_FILE }}
       - name: Run ovirt-web-ui build job
         run: kubectl create -f ${{ steps.vars.outputs.JOB_FILE }}
       - name: Wait the job to be finished
