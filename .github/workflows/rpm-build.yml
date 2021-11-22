@@ -25,6 +25,9 @@ jobs:
       # or just install python jinja2 module in the self hosted-runner pod
       - name: Setup job yaml 
         run: |
+          echo $GITHUB_REF
+          echo $GITHUB_BASE_REF
+          echo $GITHUB_HEAD_REF
           BRANCH=$(echo $GITHUB_BASE_REF | awk 'BEGIN { FS = "/" } ; { print $3 }')
           sed -e "s#{{ JOB_NAME }}#${{ steps.vars.outputs.JOB_NAME }}#g" ${{ steps.vars.outputs.TEMPLATE_FILE }} > ${{ steps.vars.outputs.JOB_FILE }}
           sed -i "s#{{ PR_NUMBER }}#${{ steps.vars.outputs.PR_NUMBER }}#g" ${{ steps.vars.outputs.JOB_FILE }}
