@@ -4,8 +4,8 @@ import { connect } from 'react-redux'
 
 import sharedStyle from '../../../sharedStyle.css'
 import { getOsHumanName, getVmIcon, isVmNameValid, isHostNameValid } from '_/components/utils'
-import { enumMsg, msg } from '_/intl'
-import { generateUnique } from '_/helpers'
+import { enumMsg, withMsg } from '_/intl'
+import { generateUnique, buildMessageFromRecord } from '_/helpers'
 import { formatUptimeDuration } from '_/utils'
 import { editVm } from '_/actions'
 
@@ -67,7 +67,7 @@ class OverviewCard extends React.Component {
       }
       return {
         correlatedMessages: props.userMessages.get('records').filter(
-          record => record.getIn([ 'failedAction', 'meta', 'correlationId' ]) === state.correlationId
+          record => record.getIn(['failedAction', 'meta', 'correlationId']) === state.correlationId
         ),
       }
     }
@@ -165,17 +165,17 @@ class OverviewCard extends React.Component {
     //     only including the fields that have been updated
     const vmUpdates = { id: stateVm.get('id') }
 
-    if (this.trackUpdates['name']) {
-      vmUpdates['name'] = stateVm.get('name')
+    if (this.trackUpdates.name) {
+      vmUpdates.name = stateVm.get('name')
     }
 
-    if (this.trackUpdates['description']) {
-      vmUpdates['description'] = stateVm.get('description')
+    if (this.trackUpdates.description) {
+      vmUpdates.description = stateVm.get('description')
     }
 
-    if (this.trackUpdates['name'] && updateCloudInit && this.isCloudInitHostnameUpdate()) {
-      vmUpdates['cloudInit'] = stateVm.get('cloudInit').toJS()
-      vmUpdates['cloudInit']['hostName'] = stateVm.get('name')
+    if (this.trackUpdates.name && updateCloudInit && this.isCloudInitHostnameUpdate()) {
+      vmUpdates.cloudInit = stateVm.get('cloudInit').toJS()
+      vmUpdates.cloudInit.hostName = stateVm.get('name')
     }
 
     // --- dispatch the save
@@ -189,10 +189,10 @@ class OverviewCard extends React.Component {
   }
 
   render () {
-    const { vm, icons, vms, operatingSystems, isEditable } = this.props
+    const { vm, icons, vms, operatingSystems, isEditable, msg } = this.props
     const { isEditing, correlatedMessages, nameError, updateCloudInit, disableHostnameToggle } = this.state
 
-    const elapsedUptime = vm.getIn(['statistics', 'elapsedUptime', 'datum'], 0)
+    const elapsedUptime = vm.getIn(['statistics', 'elapsedUptime', 'firstDatum'], 0)
     const uptime = elapsedUptime <= 0
       ? formatUptimeDuration({ start: vm.get('startTime') })
       : formatUptimeDuration({ interval: elapsedUptime * 1000 })
@@ -200,7 +200,7 @@ class OverviewCard extends React.Component {
     const icon = getVmIcon(icons, operatingSystems, vm)
     const idPrefix = 'vmdetail-overview'
 
-    const showCloudInitCheckbox = isEditing && this.trackUpdates['name'] && !nameError && this.isCloudInitHostnameUpdate()
+    const showCloudInitCheckbox = isEditing && this.trackUpdates.name && !nameError && this.isCloudInitHostnameUpdate()
 
     const poolId = vm.getIn(['pool', 'id'])
     const isPoolVm = !!poolId
@@ -214,7 +214,8 @@ class OverviewCard extends React.Component {
       <BaseCard
         editMode={isEditing}
         editable={isEditable}
-        editTooltip={`Edit ${vm.get('name')}`}
+        editTooltip={msg.edit()}
+        editTooltipPlacement={'bottom'}
         disableTooltip={isPoolVm && isPoolAutomatic ? msg.automaticPoolsNotEditable({ poolName: pool.get('name') }) : undefined}
         idPrefix={idPrefix}
         disableSaveButton={nameError}
@@ -230,48 +231,48 @@ class OverviewCard extends React.Component {
               </div>
 
               {isPoolVm && pool && <span className={style['pool-vm-label']} style={{ backgroundColor: pool.get('color') }}>{ pool.get('name') }</span>}
-              <div className={style['container']}>
+              <div className={style.container}>
                 <div className={style['os-icon']}>
                   <VmIcon icon={icon} missingIconClassName='pficon pficon-virtual-machine' />
                 </div>
                 <div className={style['vm-info']}>
                   <div className={style['vm-name']}>
                     { !isEditing && <span id={`${idPrefix}-name`}>{vm.get('name')}</span> }
-                    { isEditing &&
+                    { isEditing && (
                       <FormGroup controlId={`${idPrefix}-name-edit`} validationState={nameError ? 'error' : null}>
                         <FormControl
                           type='text'
                           value={this.state.vm.get('name')}
                           onChange={e => this.handleChange('name', e.target.value)}
                         />
-                        { nameError &&
+                        { nameError && (
                           <HelpBlock>
                             {msg.pleaseEnterValidVmName()}
                           </HelpBlock>
-                        }
+                        )}
                       </FormGroup>
-                    }
+                    )}
                     {
-                      showCloudInitCheckbox &&
-                      <div className={style['vm-checkbox']}>
-                        <Checkbox
-                          id={`${idPrefix}-cloud-init`}
-                          checked={updateCloudInit}
-                          onChange={(e) => this.setState({ updateCloudInit: e.target.checked })}
-                          disabled={disableHostnameToggle}
-                        >
-                          { !disableHostnameToggle
-                            ? msg.updateCloudInit()
-                            : msg.cannotUpdateCloudInitHostname()
+                      showCloudInitCheckbox && (
+                        <div className={style['vm-checkbox']}>
+                          <Checkbox
+                            id={`${idPrefix}-cloud-init`}
+                            checked={updateCloudInit}
+                            onChange={(e) => this.setState({ updateCloudInit: e.target.checked })}
+                            disabled={disableHostnameToggle}
+                          >
+                            { !disableHostnameToggle
+                              ? msg.updateCloudInit()
+                              : msg.cannotUpdateCloudInitHostname()
                           }
-                        </Checkbox>
-                      </div>
-                    }
+                          </Checkbox>
+                        </div>
+                      )}
                   </div>
 
                   <div className={style['vm-status']} id={`${idPrefix}-status`}>
-                    <VmStatusIcon className={style['vm-status-icon']} status={vm.get('status')} />
-                    <span className={style['vm-status-text']} id={`${idPrefix}-status-value`}>{enumMsg('VmStatus', vm.get('status'))}</span>
+                    <VmStatusIcon id={`${idPrefix}-status-icon`} className={style['vm-status-icon']} status={vm.get('status')} />
+                    <span className={style['vm-status-text']} id={`${idPrefix}-status-value`}>{enumMsg('VmStatus', vm.get('status'), msg)}</span>
 
                     { uptime &&
                       <div className={style['vm-uptime']} id={`${idPrefix}-uptime`}>{msg.uptimeDuration({ uptime })}</div>
@@ -282,7 +283,7 @@ class OverviewCard extends React.Component {
                     { !isEditing &&
                       <div id={`${idPrefix}-description`} className={style['vm-description']}>{vm.get('description')}</div>
                     }
-                    { isEditing &&
+                    { isEditing && (
                       <FormControl
                         id={`${idPrefix}-description-edit`}
                         componentClass='textarea'
@@ -290,16 +291,17 @@ class OverviewCard extends React.Component {
                         value={this.state.vm.get('description')}
                         onChange={e => this.handleChange('description', e.target.value)}
                       />
-                    }
+                    )}
                   </div>
                 </div>
               </div>
 
               { correlatedMessages && correlatedMessages.size > 0 &&
-                correlatedMessages.map((message, key) =>
+                correlatedMessages.map((message, key) => (
                   <Alert key={`user-message-${key}`} type='error' style={{ margin: '5px 0 0 0' }} id={`${idPrefix}-alert`}>
-                    {message.get('message')}
+                    {buildMessageFromRecord(message.toJS(), msg)}
                   </Alert>
+                )
                 )
               }
             </div>
@@ -309,6 +311,7 @@ class OverviewCard extends React.Component {
     )
   }
 }
+
 OverviewCard.propTypes = {
   vm: PropTypes.object,
   onEditChange: PropTypes.func,
@@ -321,6 +324,8 @@ OverviewCard.propTypes = {
   templates: PropTypes.object.isRequired,
 
   saveChanges: PropTypes.func.isRequired,
+
+  msg: PropTypes.object.isRequired,
 }
 
 export default connect(
@@ -335,4 +340,4 @@ export default connect(
   (dispatch) => ({
     saveChanges: (minimalVmChanges, correlationId) => dispatch(editVm({ vm: minimalVmChanges }, { correlationId })),
   })
-)(OverviewCard)
+)(withMsg(OverviewCard))

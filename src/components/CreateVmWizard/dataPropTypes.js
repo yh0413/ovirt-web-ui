@@ -6,7 +6,7 @@ export const BASIC_DATA_SHAPE = {
   dataCenterId: PropTypes.string,
   clusterId: PropTypes.string,
 
-  provisionSource: PropTypes.oneOf([ 'iso', 'template' ]),
+  provisionSource: PropTypes.oneOf(['iso', 'template']),
   isoImage: PropTypes.string,
   templateId: PropTypes.string,
   templateClone: PropTypes.bool,
@@ -14,7 +14,7 @@ export const BASIC_DATA_SHAPE = {
   operatingSystemId: PropTypes.string,
   memory: PropTypes.number, // in MiB
   cpus: PropTypes.number,
-  optimizedFor: PropTypes.oneOf([ 'desktop', 'server', 'high_performance' ]),
+  optimizedFor: PropTypes.oneOf(['desktop', 'server', 'high_performance']),
 
   startOnCreation: PropTypes.bool,
 
@@ -49,8 +49,6 @@ export const STORAGE_SHAPE = {
   storageDomainId: PropTypes.string,
 
   bootable: PropTypes.bool,
-  iface: PropTypes.string, // [ ide | sata | virtio | virtio_scsi ]
-  type: PropTypes.string, // [ image | lun | cinder ]
   format: PropTypes.string, // [ cow | raw ]
   size: PropTypes.number, // bytes
   isFromTemplate: PropTypes.bool,

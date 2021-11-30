@@ -4,6 +4,7 @@ import { isNumber } from './type-validation'
 
 export * from './array-utils'
 export * from './format'
+export * from './console'
 export * from './permissions'
 export * from './round'
 export * from './storage-conversion'

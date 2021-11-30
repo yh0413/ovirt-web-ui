@@ -12,23 +12,14 @@ import 'moment/locale/pt-br'
 import 'moment/locale/zh-cn'
 import 'moment-duration-format'
 
-import { BASE_LOCALE_SET, DEFAULT_LOCALE, DUMMY_LOCALE } from './index'
+import { BASE_LOCALE_SET, DEFAULT_LOCALE } from './index'
 import { timeDurations } from './time-durations'
 
-export function initIntl (forceLocale: ?string): string {
-  const locale: string = forceLocale || discoverUserLocale()
-
-  console.log(`User locale: ${locale}`)
-  initMomentTranslations(locale, DEFAULT_LOCALE)
-
-  return locale
+export function discoverUserLocale (): string {
+  return coerceToSupportedLocale(getLocaleFromUrl() || getBrowserLocale()) || DEFAULT_LOCALE
 }
 
-function discoverUserLocale (): string {
-  return getLocaleFromUrl() || getBrowserLocale() || DEFAULT_LOCALE
-}
-
-function getLocaleFromUrl (): ?string {
+export function getLocaleFromUrl (): ?string {
   const localeMatch = /locale=(\w{2}([-_]\w{2})?)/.exec(window.location.search)
   if (localeMatch === null) {
     return null
@@ -64,28 +55,33 @@ function getBrowserLocale (): ?string {
  *    'fr-CA' -> 'fr'
  *    'pt-PT' -> null  (since we support pt-BR and don't have a base pt translation)
  */
-function coerceToSupportedLocale (locale: string): ?string {
+export function coerceToSupportedLocale (locale: ?string): ?string {
+  if (!locale) {
+    return null
+  }
+
   if (/^en/.test(locale)) {
     return 'en'
   }
 
-  if (BASE_LOCALE_SET.has(locale)) {
-    return locale
+  let commonLocale = locale.replace('_', '-')
+  const localeArray = commonLocale.split(/[-]/)
+  if (localeArray.length === 2) {
+    commonLocale = localeArray[0] + '-' + localeArray[1].toUpperCase()
+  }
+  if (BASE_LOCALE_SET.has(commonLocale)) {
+    return commonLocale
   }
 
-  const languageOnlyLocale = locale.split(/[-_]/)[0]
+  const languageOnlyLocale = localeArray[0]
   return BASE_LOCALE_SET.has(languageOnlyLocale) ? languageOnlyLocale : null
 }
 
 //
 // moment and moment-duration-format setup
 //
-function initMomentTranslations (locale: string, defaultLocale: string) {
-  if (locale === DUMMY_LOCALE) {
-    moment.defineLocale(DUMMY_LOCALE, {})
-  }
-
-  const chosen = moment.locale([ locale, defaultLocale ])
+export function initMomentTranslations (locale: string, defaultLocale: string) {
+  const chosen = moment.locale([locale, defaultLocale])
   console.log(`Locale being used by moment: ${chosen}`)
 
   //
@@ -94,9 +90,11 @@ function initMomentTranslations (locale: string, defaultLocale: string) {
   //
   const translations = require('./translated-time-durations.json')
   if (translations[locale]) {
-    const t:{ [messageId: string]: string } = translations[locale]
+    const t: { [messageId: string]: string } = translations[locale]
 
-    moment.updateLocale(locale, {
+    // for built-in translations moment.js uses lower case identifiers
+    // i.e. pt-br instead of pt-BR
+    moment.updateLocale(locale.toLowerCase(), {
       durationLabelsStandard: {
         S: t.durationLabelStandard_S || timeDurations.durationLabelStandard_S.message,
         SS: t.durationLabelStandard_SS || timeDurations.durationLabelStandard_SS.message,

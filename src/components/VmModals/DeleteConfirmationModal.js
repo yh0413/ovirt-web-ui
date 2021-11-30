@@ -1,7 +1,7 @@
 import React from 'react'
 import PropTypes from 'prop-types'
 import { MessageDialog, Icon } from 'patternfly-react'
-import { msg } from '_/intl'
+import { withMsg } from '_/intl'
 
 class DeleteConfirmationModal extends React.Component {
   constructor (props) {
@@ -28,7 +28,13 @@ class DeleteConfirmationModal extends React.Component {
   }
 
   render () {
-    const { children, trigger, id, severity = 'normal' } = this.props
+    const {
+      children,
+      trigger,
+      id,
+      severity = 'normal',
+      msg,
+    } = this.props
 
     const primary = Array.isArray(children) ? children[0] : children
     const secondary = Array.isArray(children) ? children.slice(1) : undefined
@@ -39,7 +45,7 @@ class DeleteConfirmationModal extends React.Component {
     const primaryButtonStyle = severity === 'normal' ? 'primary' : 'danger'
 
     return (
-      <React.Fragment>
+      <>
         { trigger({ onClick: this.handleTriggerClick }) }
         <MessageDialog
           id={id}
@@ -55,17 +61,19 @@ class DeleteConfirmationModal extends React.Component {
           primaryContent={<div id={`${id}-lead`} className='lead'>{primary}</div>}
           secondaryContent={secondary}
         />
-      </React.Fragment>
+      </>
     )
   }
 }
+
 DeleteConfirmationModal.propTypes = {
   id: PropTypes.string.isRequired,
   trigger: PropTypes.func.isRequired,
   children: PropTypes.node.isRequired,
   onDelete: PropTypes.func.isRequired,
   onClose: PropTypes.func,
-  severity: PropTypes.oneOf([ 'normal', 'danger' ]),
+  severity: PropTypes.oneOf(['normal', 'danger']),
+  msg: PropTypes.object.isRequired,
 }
 
-export default DeleteConfirmationModal
+export default withMsg(DeleteConfirmationModal)

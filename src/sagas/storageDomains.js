@@ -1,7 +1,7 @@
 import Api, { Transforms } from '_/ovirtapi'
-import { all, call, put, select, takeLatest, throttle } from 'redux-saga/effects'
-import { callExternalAction, entityPermissionsToUserPermits } from './utils'
+import { all, call, put, select } from 'redux-saga/effects'
 
+import { callExternalAction, entityPermissionsToUserPermits } from './utils'
 import { canUserUseStorageDomain } from '_/utils'
 
 import {
@@ -9,18 +9,14 @@ import {
   setStorageDomains,
   setStorageDomainsFiles,
 } from '_/actions'
-import {
-  GET_ALL_STORAGE_DOMAINS,
-  GET_ISO_FILES,
-} from '_/constants'
 
 /**
  * Fetch all data centers and attached storage domains.  By fetching the storage domains
  * along with the data centers, we can keep track of the storage domain status per data
  * center.
  */
-export function* fetchDataCentersAndStorageDomains (action) {
-  const [ dataCenters, storageDomains ] =
+export function* fetchDataCentersAndStorageDomains () {
+  const [dataCenters, storageDomains] =
     yield all([
       call(fetchDataCenters),
       call(fetchDataAndIsoStorageDomains),
@@ -29,9 +25,9 @@ export function* fetchDataCentersAndStorageDomains (action) {
   // figure out the domain's status per data center
   const sdById = storageDomains.reduce((acc, sd) => ({ ...acc, [sd.id]: sd }), {})
   for (const dataCenter of dataCenters) {
-    for (const [ storageDomainId, { type } ] of Object.entries(dataCenter.storageDomains)) {
+    for (const [storageDomainId, { type }] of Object.entries(dataCenter.storageDomains)) {
       if (type === 'data' || type === 'iso') {
-        const sd = sdById[ storageDomainId ]
+        const sd = sdById[storageDomainId]
         sd.statusPerDataCenter = {
           ...sd.statusPerDataCenter,
           [dataCenter.id]: dataCenter.storageDomains[storageDomainId].status,
@@ -45,8 +41,8 @@ export function* fetchDataCentersAndStorageDomains (action) {
 }
 
 function* fetchDataCenters () {
-  const payload = { additional: [ 'permissions', 'storage_domains' ] }
-  const dataCentersApi = yield callExternalAction('getAllDataCenters', Api.getAllDataCenters, { payload })
+  const payload = { additional: ['permissions', 'storage_domains'] }
+  const dataCentersApi = yield callExternalAction(Api.getAllDataCenters, { payload })
 
   if (dataCentersApi && dataCentersApi.data_center) {
     const dataCentersInternal = dataCentersApi.data_center.map(
@@ -65,7 +61,7 @@ function* fetchDataCenters () {
 }
 
 function* fetchDataAndIsoStorageDomains () {
-  const storageDomainsApi = yield callExternalAction('getStorages', Api.getStorages, { payload: {} })
+  const storageDomainsApi = yield callExternalAction(Api.getStorages, { payload: {} })
 
   if (storageDomainsApi && storageDomainsApi.storage_domain) {
     const storageDomainsInternal = storageDomainsApi.storage_domain
@@ -99,7 +95,7 @@ export function* fetchIsoFiles () {
  * Fetch ISO disk images and distribute them to their storage domains as files
  */
 function* fetchIsoDiskImages () {
-  const images = yield callExternalAction('getIsoImages', Api.getIsoImages, { payload: {} })
+  const images = yield callExternalAction(Api.getIsoImages, { payload: {} })
   if (images && images.disk) {
     const storageDomainToDisks = images.disk.reduce(
       (acc, disk) => {
@@ -140,7 +136,7 @@ function* fetchIsoFilesFromIsoStorageDomains () {
  * Fetch 'files' from the single given ISO storage domain
  */
 function* fetchIsoFilesFromIsoStorageDomain (storageDomainId) {
-  const files = yield callExternalAction('getStorageFiles', Api.getStorageFiles, { payload: { storageId: storageDomainId } })
+  const files = yield callExternalAction(Api.getStorageFiles, { payload: { storageId: storageDomainId } })
   if (files && files.file) {
     const filesInternal = files.file.map(
       file => Transforms.StorageDomainFile.toInternal({ file })
@@ -148,8 +144,3 @@ function* fetchIsoFilesFromIsoStorageDomain (storageDomainId) {
     yield put(setStorageDomainsFiles(storageDomainId, filesInternal))
   }
 }
-
-export default [
-  takeLatest(GET_ALL_STORAGE_DOMAINS, fetchDataCentersAndStorageDomains),
-  throttle(100, GET_ISO_FILES, fetchIsoFiles),
-]

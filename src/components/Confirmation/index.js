@@ -10,7 +10,7 @@ const Confirmation = ({ okButton, cancelButton, extraButton, text, height, uniqu
 
   const s = {}
   if (height) {
-    s['height'] = height
+    s.height = height
   }
 
   return (
@@ -32,7 +32,8 @@ const Confirmation = ({ okButton, cancelButton, extraButton, text, height, uniqu
           </Button>
         )}
       </ButtonToolbar>
-    </span>)
+    </span>
+  )
 }
 
 Confirmation.propTypes = {

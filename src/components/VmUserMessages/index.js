@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useContext, useState } from 'react'
 import PropTypes from 'prop-types'
 import { connect } from 'react-redux'
 
@@ -7,25 +7,28 @@ import { Notification, NotificationDrawer, MenuItem, Icon, Button } from 'patter
 import style from './style.css'
 
 import { clearUserMessages, dismissEvent } from '_/actions'
-import { getFormatedDateTime } from '_/helpers'
-import { msg } from '_/intl'
+import { getFormatedDateTime, buildMessageFromRecord } from '_/helpers'
+import { MsgContext } from '_/intl'
 
 const UserMessage = ({ record, id, onDismissMessage }) => {
+  const { msg } = useContext(MsgContext)
   const time = getFormatedDateTime(record.get('time'))
-  return (<Notification seen>
-    <NotificationDrawer.Dropdown id={id}>
-      <MenuItem onClick={onDismissMessage}>
-        { msg.clear() }
-      </MenuItem>
-    </NotificationDrawer.Dropdown>
-    <Icon className='pull-left' type='pf' name='warning-triangle-o' />
-    <Notification.Content>
-      <Notification.Message>
-        {record.get('message')}
-      </Notification.Message>
-      <Notification.Info leftText={time.date} rightText={time.time} />
-    </Notification.Content>
-  </Notification>)
+  return (
+    <Notification seen>
+      <NotificationDrawer.Dropdown id={id}>
+        <MenuItem onClick={onDismissMessage}>
+          { msg.clear() }
+        </MenuItem>
+      </NotificationDrawer.Dropdown>
+      <Icon className='pull-left' type='pf' name='warning-triangle-o' />
+      <Notification.Content>
+        <Notification.Message>
+          { buildMessageFromRecord(record.toJS(), msg) }
+        </Notification.Message>
+        <Notification.Info leftText={time.date} rightText={time.time} />
+      </Notification.Content>
+    </Notification>
+  )
 }
 UserMessage.propTypes = {
   record: PropTypes.object.isRequired,
@@ -34,9 +37,10 @@ UserMessage.propTypes = {
 }
 
 const VmUserMessages = ({ userMessages, onClearMessages, onDismissMessage, onClose, show }) => {
+  const { msg } = useContext(MsgContext)
   const [expanded, setExpanded] = useState(false)
 
-  const idPrefix = `usermsgs`
+  const idPrefix = 'usermsgs'
 
   const messagesCount = userMessages.get('records').size
   const messagesList = messagesCount
@@ -52,12 +56,12 @@ const VmUserMessages = ({ userMessages, onClearMessages, onDismissMessage, onClo
 
   return (
     <NotificationDrawer hide={!show} expanded={expanded}>
-      <NotificationDrawer.Title onCloseClick={onClose} onExpandClick={() => setExpanded(!expanded)} />
+      <NotificationDrawer.Title title={msg.notifications()} onCloseClick={onClose} onExpandClick={() => setExpanded(!expanded)} />
       <NotificationDrawer.PanelBody className={style['panel-body']}>
         <div className={style['notifications-list']}>
           {messagesList}
         </div>
-        { messagesCount > 0 &&
+        { messagesCount > 0 && (
           <NotificationDrawer.PanelAction className={style['action-panel']}>
             <NotificationDrawer.PanelActionLink data-toggle='clear-all'>
               <Button bsStyle='link' onClick={onClearMessages}>
@@ -66,7 +70,7 @@ const VmUserMessages = ({ userMessages, onClearMessages, onDismissMessage, onClo
               </Button>
             </NotificationDrawer.PanelActionLink>
           </NotificationDrawer.PanelAction>
-        }
+        )}
       </NotificationDrawer.PanelBody>
     </NotificationDrawer>
   )

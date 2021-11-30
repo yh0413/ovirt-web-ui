@@ -2,7 +2,7 @@ import { all, call, put, takeEvery, select } from 'redux-saga/effects'
 import pick from 'lodash/pick'
 
 import Product from '_/version'
-import Api from '_/ovirtapi'
+import Api, { Transforms } from '_/ovirtapi'
 import AppConfiguration from '_/config'
 import OptionsManager from '_/optionsManager'
 
@@ -17,18 +17,7 @@ import {
   setUserFilterPermission,
   setAdministrator,
   getAllEvents,
-  getOption,
 
-  getAllClusters,
-  getAllHosts,
-  getAllOperatingSystems,
-  getAllStorageDomains,
-  getAllTemplates,
-  getAllVnicProfiles,
-  getRoles,
-  getUserGroups,
-
-  downloadConsole,
   getSingleVm,
 
   updateVms,
@@ -48,16 +37,17 @@ import {
   fetchAllOS,
   fetchAllVnicProfiles,
   fetchAllTemplates,
+  fetchCurrentUser,
   fetchUserGroups,
 } from './base-data'
-import { downloadVmConsole } from './console'
 import { fetchRoles } from './roles'
-import { fetchServerConfiguredValues } from './server-configs'
+import { fetchServerConfiguredValues, fetchGeneralEngineOption } from './server-configs'
 import { fetchDataCentersAndStorageDomains, fetchIsoFiles } from './storageDomains'
 import { loadIconsFromLocalStorage } from './osIcons'
 import { transformAndPermitVm } from './index'
 
-import { loadFromLocalStorage } from '_/storage'
+import { loadFromLocalStorage, removeFromLocalStorage } from '_/storage'
+import { loadUserOptions } from './options'
 
 /**
  * Perform login checks, and if they pass, perform initial data loading
@@ -78,13 +68,13 @@ function* login (action) {
   yield put(loginSuccessful({ token, userId, username, domain }))
 
   // Verify the API (exists and is the correct version)
-  const oVirtMeta = yield callExternalAction('getOvirtApiMeta', Api.getOvirtApiMeta, action)
+  const oVirtMeta = yield callExternalAction(Api.getOvirtApiMeta, action)
   const versionOk = yield checkOvirtApiVersion(oVirtMeta)
   if (!versionOk) {
     console.error('oVirt API version check failed')
     yield put(failedExternalAction({
       message: composeIncompatibleOVirtApiVersionMessage(oVirtMeta),
-      shortMessage: 'oVirt API version check failed', // TODO: Localize
+      messageDescriptor: { id: 'apiVersionCheckFailed' },
     }))
     return
   }
@@ -101,20 +91,29 @@ function* login (action) {
   console.log('\u2714 login checks and server config fetches are done:',
     yield select(state => pick(
       state.config.toJS(),
-      [ 'administrator', 'filter', 'domain', 'user', 'userSessionTimeoutInterval', 'websocket', 'cpuTopology' ]))
+      ['administrator', 'filter', 'domain', 'user', 'userSessionTimeoutInterval', 'websocket', 'cpuTopology']))
   )
   console.groupEnd('user checks and server config')
 
   yield initialLoad()
   console.groupEnd('Login Data Fetch')
 
-  // The first page of VMs and Pools are loaded by the background-refresh sagas when the
-  // `react-router-config` loads the route '/'.  Loading of additional pages is handled by
-  // user interaction (scrolling) on the `Vms` card view component.
-
   yield put(appConfigured())
   yield autoConnectCheck()
   yield put(getAllEvents())
+
+  // Note: The initial data needed to render the App's initial route will be loaded by
+  // the background-refresh sagas.  `PageRouter` uses the `changePage` action to set the
+  // "page" based on the route on the initial and all subsequent route changes.
+  //
+  // put(appConfigured)
+  //   -> renderRoutes(...)
+  //     -> PageRouter
+  //       -> getDerivedStateFromProps() -> currentPath != newPath -> onChangePage(...)
+  //         -> dispatch(changePage(...))
+  //           -> put(startSchedulerFixedDelay({ startDelayInSeconds: 0, ...}))
+  //             -> refreshData()
+  //
 }
 
 /**
@@ -134,17 +133,13 @@ function* logout () {
  * is compatible with our expected API version.
  */
 function* checkOvirtApiVersion (oVirtMeta) {
-  if (!(oVirtMeta &&
-        oVirtMeta['product_info'] &&
-        oVirtMeta['product_info']['version'] &&
-        oVirtMeta['product_info']['version']['major'] &&
-        oVirtMeta['product_info']['version']['minor'])) {
+  if (!isValidOvirtMeta(oVirtMeta)) {
     console.error('Incompatible oVirt API version: ', oVirtMeta)
     yield put(setOvirtApiVersion({ passed: false, ...oVirtMeta }))
     return false
   }
 
-  const actual = oVirtMeta['product_info']['version']
+  const actual = Transforms.Version.toInternal(oVirtMeta.product_info.version)
   const required = Product.ovirtApiVersionRequired
   const passed = compareVersion(actual, required)
 
@@ -152,24 +147,29 @@ function* checkOvirtApiVersion (oVirtMeta) {
   return passed
 }
 
+function isValidOvirtMeta (oVirtMeta) {
+  return oVirtMeta &&
+        oVirtMeta.product_info &&
+        oVirtMeta.product_info.version &&
+        oVirtMeta.product_info.version.major &&
+        oVirtMeta.product_info.version.minor &&
+        oVirtMeta.product_info.version.build
+}
+
 function composeIncompatibleOVirtApiVersionMessage (oVirtMeta) {
   const requested = `${Product.ovirtApiVersionRequired.major}.${Product.ovirtApiVersionRequired.minor}`
   let found
-  if (!(oVirtMeta &&
-        oVirtMeta['product_info'] &&
-        oVirtMeta['product_info']['version'] &&
-        oVirtMeta['product_info']['version']['major'] &&
-        oVirtMeta['product_info']['version']['minor'])) {
+  if (!isValidOvirtMeta(oVirtMeta)) {
     found = JSON.stringify(oVirtMeta)
   } else {
-    const version = oVirtMeta['product_info']['version']
+    const version = oVirtMeta.product_info.version
     found = `${version.major}.${version.minor}`
   }
   return `oVirt API version requested >= ${requested}, but ${found} found` // TODO: Localize
 }
 
 function* checkUserFilterPermissions () {
-  const data = yield callExternalAction('checkFilter', Api.checkFilter, { action: 'CHECK_FILTER' }, true)
+  const data = yield callExternalAction(Api.checkFilter, { action: 'CHECK_FILTER' }, true)
 
   const isAdmin = data.error === undefined // expect an error on `checkFilter` if the user isn't admin
   yield put(setAdministrator(isAdmin))
@@ -179,11 +179,7 @@ function* checkUserFilterPermissions () {
     return
   }
 
-  const alwaysFilterOption = yield callExternalAction(
-    'getOption',
-    Api.getOption,
-    getOption('AlwaysFilterResultsForWebUi', 'general', 'false'))
-
+  const alwaysFilterOption = yield fetchGeneralEngineOption('AlwaysFilterResultsForWebUi', 'false')
   const isAlwaysFilterOption = alwaysFilterOption === 'true'
   yield put.resolve(setUserFilterPermission(isAlwaysFilterOption))
 }
@@ -199,11 +195,13 @@ function* initialLoad () {
   console.group('no data prerequisites')
   yield all([
     call(loadIconsFromLocalStorage),
-    call(fetchRoles, getRoles()),
-    call(fetchUserGroups, getUserGroups()),
-    call(fetchAllOS, getAllOperatingSystems()),
-    call(fetchAllHosts, getAllHosts()),
+    call(fetchRoles),
+    call(fetchCurrentUser),
+    call(fetchUserGroups),
+    call(fetchAllOS),
+    call(fetchAllHosts),
     call(loadFilters),
+    call(loadUserOptions),
   ])
   console.log('\u2714 data loads with no prerequisites are complete')
   console.groupEnd('no data prerequisites')
@@ -211,10 +209,10 @@ function* initialLoad () {
   // requires user groups and roles to be in redux store for authorization checks
   console.group('needs user groups and roles')
   yield all([
-    call(fetchDataCentersAndStorageDomains, getAllStorageDomains()),
-    call(fetchAllTemplates, getAllTemplates()),
-    call(fetchAllClusters, getAllClusters()),
-    call(fetchAllVnicProfiles, getAllVnicProfiles()),
+    call(fetchDataCentersAndStorageDomains),
+    call(fetchAllTemplates),
+    call(fetchAllClusters),
+    call(fetchAllVnicProfiles),
   ])
   console.log('\u2714 data loads that require user groups and roles are complete')
   console.groupEnd('needs user groups and roles')
@@ -225,19 +223,21 @@ function* initialLoad () {
   console.log('\u2714 data loads that require storage domains are complete')
   console.groupEnd('needs storage domains')
 
+  // delete options left in local storage by older versions
+  removeFromLocalStorage('options')
+
   // Vms and Pools are loaded as needed / accessed
 }
 
 function* autoConnectCheck () {
   const vmId = OptionsManager.loadAutoConnectOption()
   if (vmId && vmId.length > 0) {
-    const vm = yield callExternalAction('getVm', Api.getVm, getSingleVm({ vmId }), true)
+    const vm = yield callExternalAction(Api.getVm, getSingleVm({ vmId }), true)
     if (vm && vm.error && vm.error.status === 404) {
       OptionsManager.clearAutoConnect()
     } else if (vm && vm.id && vm.status !== 'down') {
       const internalVm = yield transformAndPermitVm(vm)
       yield put(updateVms({ vms: [internalVm] }))
-      yield downloadVmConsole(downloadConsole({ vmId, hasGuestAgent: internalVm.ssoGuestAgent }))
     }
   }
 }

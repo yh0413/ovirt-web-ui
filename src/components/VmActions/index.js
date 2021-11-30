@@ -5,7 +5,7 @@ import { connect } from 'react-redux'
 import { withRouter } from 'react-router-dom'
 
 import style from './style.css'
-import { msg } from '_/intl'
+import { withMsg } from '_/intl'
 import { RouterPropTypeShapes } from '_/propTypeShapes'
 
 import {
@@ -18,22 +18,14 @@ import {
   canExternalService,
 } from '../../vm-status'
 
-import {
-  shutdownVm,
-  restartVm,
-  suspendVm,
-  startPool,
-  startVm,
-  removeVm,
-  getRDP,
-} from '_/actions'
+import * as Actions from '_/actions'
 
 import { isWindows } from '_/helpers'
 
 import { SplitButton, Icon, Checkbox, DropdownKebab } from 'patternfly-react'
 import ConfirmationModal from './ConfirmationModal'
-import ConsoleConfirmationModal from './ConsoleConfirmationModal'
 import Action, { ActionButtonWraper, MenuItemAction, ActionMenuItemWrapper } from './Action'
+import { VNC, RDP, BROWSER_VNC, SPICE, NATIVE_VNC, NO_VNC } from '_/constants/console'
 
 const EmptyAction = ({ state, isOnCard }) => {
   if (!canConsole(state) && !canShutdown(state) && !canRestart(state) && !canStart(state)) {
@@ -75,7 +67,7 @@ const VmDropdownActions = ({ actions, id }) => {
         onClick={primaryAction.onClick}
         id={id}
       >
-        {secondaryActions.map(action =>
+        {secondaryActions.map(action => (
           <MenuItemAction key={action.shortTitle}
             id={action.id}
             confirmation={action.confirmation}
@@ -84,6 +76,7 @@ const VmDropdownActions = ({ actions, id }) => {
             onClick={action.onClick}
             className=''
           />
+        )
         )}
       </SplitButton>
     </Action>
@@ -92,6 +85,65 @@ const VmDropdownActions = ({ actions, id }) => {
 VmDropdownActions.propTypes = {
   actions: PropTypes.array.isRequired,
   id: PropTypes.string.isRequired,
+}
+
+export function getConsoleActions ({ vm, msg, onOpenConsole, idPrefix, config, preferredConsole }) {
+  const vncConsole = vm.get('consoles').find(c => c.get('protocol') === VNC)
+  const spiceConsole = vm.get('consoles').find(c => c.get('protocol') === SPICE)
+  const hasRdp = isWindows(vm.getIn(['os', 'type']))
+  const consoles = []
+
+  if (vncConsole) {
+    const vncModes = [{
+      priority: 0,
+      protocol: VNC,
+      consoleType: NATIVE_VNC,
+      shortTitle: msg.vncConsole(),
+      icon: <Icon name='external-link' />,
+      id: `${idPrefix}-button-console-vnc`,
+      onClick: () => { onOpenConsole({ consoleType: NATIVE_VNC }) },
+    },
+    {
+      priority: 0,
+      consoleType: BROWSER_VNC,
+      shortTitle: msg.vncConsoleBrowser(),
+      actionDisabled: config.get('websocket') === null,
+      id: `${idPrefix}-button-console-browser`,
+      onClick: () => { onOpenConsole({ consoleType: BROWSER_VNC }) },
+    }]
+
+    if (config.get('defaultVncMode') === NO_VNC) {
+      vncModes.reverse()
+    }
+    consoles.push(...vncModes)
+  }
+
+  if (spiceConsole) {
+    consoles.push({
+      priority: 0,
+      protocol: SPICE,
+      consoleType: SPICE,
+      shortTitle: msg.spiceConsole(),
+      icon: <Icon name='external-link' />,
+      id: `${idPrefix}-button-console-spice`,
+      onClick: (e) => { onOpenConsole({ consoleType: SPICE }) },
+    })
+  }
+
+  if (hasRdp) {
+    consoles.push({
+      priority: 0,
+      consoleType: RDP,
+      shortTitle: msg.remoteDesktop(),
+      icon: <Icon name='external-link' />,
+      id: `${idPrefix}-button-console-rdp`,
+      onClick: (e) => { onOpenConsole({ consoleType: RDP }) },
+    })
+  }
+
+  return consoles
+    .map(({ consoleType, ...props }) => ({ ...props, consoleType, priority: consoleType === preferredConsole ? 1 : 0 }))
+    .sort((a, b) => b.priority - a.priority)
 }
 
 /**
@@ -125,71 +177,22 @@ class VmActions extends React.Component {
       onRestart,
       onForceShutdown,
       onSuspend,
-      onRDP,
+      onOpenConsole,
+      msg,
+      preferredConsole,
     } = this.props
     const isPoolVm = !!vm.getIn(['pool', 'id'], false)
     const isPool = !!pool && !isPoolVm
     const status = vm.get('status')
     const onStart = (isPool ? onStartPool : onStartVm)
 
-    // TODO: On the card list page, the VM's consoles would not have been fetched yet,
-    // TODO: so the tooltip on the console button will be blank.
-    let consoleProtocol = ''
-    if (!vm.get('consoles').isEmpty()) {
-      const vConsole = vm.get('consoles').find(c => c.get('protocol') === 'spice') || vm.getIn(['consoles', 0])
-      const protocol = vConsole.get('protocol').toUpperCase()
-      consoleProtocol = msg.openProtocolConsole({ protocol })
-    }
-
-    if (vm.get('consoleInUse')) {
-      consoleProtocol = 'Console in use'
-    }
-
-    const vncConsole = vm.get('consoles').find(c => c.get('protocol') === 'vnc')
-    const hasRdp = isWindows(vm.getIn(['os', 'type']))
-    const consoles = vm.get('consoles').map((c) => ({
-      priority: 0,
-      shortTitle: msg[c.get('protocol') + 'Console'](),
-      icon: <Icon name='external-link' />,
-      tooltip: msg[c.get('protocol') + 'ConsoleOpen'](),
-      id: `${idPrefix}-button-console-${c.get('protocol')}`,
-      confirmation: (
-        <ConsoleConfirmationModal consoleId={c.get('id')} vm={vm} />
-      ),
-    })).toJS()
-
-    if (hasRdp) {
-      const domain = config.get('domain')
-      const username = config.getIn([ 'user', 'name' ])
-      consoles.push({
-        priority: 0,
-        shortTitle: msg.rdpConsole(),
-        icon: <Icon name='external-link' />,
-        tooltip: msg.rdpConsoleOpen(),
-        id: `${idPrefix}-button-console-rdp`,
-        onClick: (e) => { e.preventDefault(); onRDP({ domain, username }) },
-      })
-    }
-
-    if (vncConsole) {
-      consoles.push({
-        priority: 0,
-        shortTitle: msg.vncConsoleBrowser(),
-        tooltip: msg.vncConsoleBrowserOpen(),
-        actionDisabled: config.get('websocket') === null,
-        id: `${idPrefix}-button-console-browser`,
-        confirmation: (
-          <ConsoleConfirmationModal isNoVNC consoleId={vncConsole.get('id')} vm={vm} />
-        ),
-      })
-    }
+    const consoles = getConsoleActions({ vm, msg, onOpenConsole, idPrefix, config, preferredConsole })
 
     const actions = [
       {
         priority: 0,
         actionDisabled: (!isPool && !canStart(status)) || vm.getIn(['actionInProgress', 'start']) || (isPool && pool.get('maxUserVms') <= pool.get('vmsCount')),
         shortTitle: isPool ? msg.takeVm() : msg.run(),
-        tooltip: msg.startVm(),
         className: 'btn btn-success',
         id: `${idPrefix}-button-start`,
         onClick: onStart,
@@ -198,7 +201,6 @@ class VmActions extends React.Component {
         priority: 0,
         actionDisabled: isPool || isPoolVm || !canSuspend(status) || vm.getIn(['actionInProgress', 'suspend']),
         shortTitle: msg.suspend(),
-        tooltip: msg.suspendVm(),
         className: 'btn btn-default',
         id: `${idPrefix}-button-suspend`,
         confirmation: (
@@ -213,7 +215,6 @@ class VmActions extends React.Component {
         priority: 0,
         actionDisabled: isPool || !canShutdown(status) || vm.getIn(['actionInProgress', 'shutdown']),
         shortTitle: msg.shutdown(),
-        tooltip: msg.shutdownVm(),
         className: 'btn btn-default',
         id: `${idPrefix}-button-shutdown`,
         confirmation: (
@@ -230,7 +231,6 @@ class VmActions extends React.Component {
         priority: 0,
         actionDisabled: isPool || !canRestart(status) || vm.getIn(['actionInProgress', 'restart']),
         shortTitle: msg.reboot(),
-        tooltip: msg.rebootVm(),
         className: 'btn btn-default',
         id: `${idPrefix}-button-reboot`,
         confirmation: (
@@ -243,9 +243,8 @@ class VmActions extends React.Component {
       },
       {
         priority: 1,
-        actionDisabled: isPool || !canConsole(status) || vm.getIn(['actionInProgress', 'getConsole']) || vm.get('consoles').isEmpty(),
+        actionDisabled: isPool || !canConsole(status) || vm.getIn(['actionInProgress', 'getConsole']) || !consoles.length,
         shortTitle: msg.console(),
-        tooltip: consoleProtocol,
         className: 'btn btn-default',
         bsStyle: 'default',
         id: `${idPrefix}-button-console`,
@@ -268,7 +267,6 @@ class VmActions extends React.Component {
           priority: 0,
           actionDisabled: isPool || !canExternalService(status, fqdn),
           shortTitle: serviceName,
-          tooltip: msg.serviceTip({ serviceName }),
           className: 'btn btn-default',
           id: `${idPrefix}-button-svc-${idx++}`,
           onClick: () => window.open(`${protocol}://${fqdn}:${port}`),
@@ -286,6 +284,7 @@ class VmActions extends React.Component {
       isOnCard = false,
       idPrefix = `vmaction-${vm.get('name')}`,
       onRemove,
+      msg,
     } = this.props
 
     const isPool = !!pool
@@ -298,17 +297,19 @@ class VmActions extends React.Component {
     // Actions for Card
     if (isOnCard) {
       let filteredActions = actions.filter((action) => !action.actionDisabled).sort((a, b) => b.priority - a.priority)
-      filteredActions = filteredActions.length === 0 ? [ actions[0] ] : filteredActions
-      return <div className={`actions-line card-pf-items text-center ${style['action-height']}`} id={idPrefix}>
-        <VmDropdownActions id={`${idPrefix}-dropdown`} actions={filteredActions} />
-      </div>
+      filteredActions = filteredActions.length === 0 ? [actions[0]] : filteredActions
+      return (
+        <div className={`actions-line card-pf-items text-center ${style['action-height']}`} id={idPrefix}>
+          <VmDropdownActions id={`${idPrefix}-dropdown`} actions={filteredActions} />
+        </div>
+      )
     }
 
     // Actions for the Toolbar
     const removeConfirmation = (
       <ConfirmationModal
         title={msg.removeVm()}
-        body={
+        body={(
           <div>
             <div id={`${idPrefix}-question`}>{msg.removeVmQustion()}</div>
             {vm.get('disks').size > 0 && (
@@ -325,39 +326,40 @@ class VmActions extends React.Component {
               </div>
             )}
           </div>
-        }
+        )}
         confirm={{ title: msg.remove(), type: 'danger', onClick: () => onRemove({ preserveDisks: this.state.removePreserveDisks }) }}
-      />)
+      />
+    )
 
-    return (<React.Fragment>
-      <div className={`actions-line ${style['actions-toolbar']} visible-xs`} id={`${idPrefix}Kebab`}>
-        <DropdownKebab id={`${idPrefix}Kebab-kebab`} pullRight>
-          { actions.map(action => <ActionMenuItemWrapper key={action.id} {...action} />) }
-          <ActionMenuItemWrapper
+    return (
+      <>
+        <div className={`actions-line ${style['actions-toolbar']} visible-xs`} id={`${idPrefix}Kebab`}>
+          <DropdownKebab id={`${idPrefix}Kebab-kebab`} pullRight>
+            { actions.map(action => <ActionMenuItemWrapper key={action.id} {...action} />) }
+            <ActionMenuItemWrapper
+              confirmation={removeConfirmation}
+              actionDisabled={isPool || !canRemove(status) || vm.getIn(['actionInProgress', 'remove'])}
+              shortTitle={msg.remove()}
+              className='btn btn-danger'
+              id={`${idPrefix}Kebab-button-remove`}
+            />
+          </DropdownKebab>
+        </div>
+
+        <div className={`actions-line ${style['actions-toolbar']} hidden-xs`} id={idPrefix}>
+          <EmptyAction state={status} isOnCard={isOnCard} />
+
+          {actions.map(action => <ActionButtonWraper key={action.id} {...action} />)}
+
+          <ActionButtonWraper
             confirmation={removeConfirmation}
             actionDisabled={isPool || !canRemove(status) || vm.getIn(['actionInProgress', 'remove'])}
             shortTitle={msg.remove()}
             className='btn btn-danger'
-            id={`${idPrefix}Kebab-button-remove`}
+            id={`${idPrefix}-button-remove`}
           />
-        </DropdownKebab>
-      </div>
-
-      <div className={`actions-line ${style['actions-toolbar']} hidden-xs`} id={idPrefix}>
-        <EmptyAction state={status} isOnCard={isOnCard} />
-
-        {actions.map(action => <ActionButtonWraper key={action.id} {...action} />)}
-
-        <ActionButtonWraper
-          confirmation={removeConfirmation}
-          actionDisabled={isPool || !canRemove(status) || vm.getIn(['actionInProgress', 'remove'])}
-          shortTitle={msg.remove()}
-          tooltip={msg.removeVm()}
-          className='btn btn-danger'
-          id={`${idPrefix}-button-remove`}
-        />
-      </div>
-    </React.Fragment>
+        </div>
+      </>
     )
   }
 }
@@ -379,7 +381,9 @@ VmActions.propTypes = {
   onRemove: PropTypes.func.isRequired,
   onStartPool: PropTypes.func.isRequired,
   onStartVm: PropTypes.func.isRequired,
-  onRDP: PropTypes.func.isRequired,
+  msg: PropTypes.object.isRequired,
+  preferredConsole: PropTypes.string,
+  onOpenConsole: PropTypes.func.isRequired,
 }
 
 export default withRouter(
@@ -387,16 +391,22 @@ export default withRouter(
     (state, { vm }) => ({
       isEditable: vm.get('canUserEditVm') && state.clusters.find(cluster => cluster.get('canUserUseCluster')) !== undefined,
       config: state.config,
+      preferredConsole: state.options.getIn(['remoteOptions', 'preferredConsole', 'content'], state.config.get('defaultUiConsole')),
     }),
     (dispatch, { vm, pool }) => ({
-      onShutdown: () => dispatch(shutdownVm({ vmId: vm.get('id'), force: false })),
-      onRestart: () => dispatch(restartVm({ vmId: vm.get('id'), force: false })),
-      onForceShutdown: () => dispatch(shutdownVm({ vmId: vm.get('id'), force: true })),
-      onSuspend: () => dispatch(suspendVm({ vmId: vm.get('id') })),
-      onRemove: ({ preserveDisks }) => dispatch(removeVm({ vmId: vm.get('id'), preserveDisks })),
-      onStartPool: () => dispatch(startPool({ poolId: pool.get('id') })),
-      onStartVm: () => dispatch(startVm({ vmId: vm.get('id') })),
-      onRDP: ({ domain, username }) => dispatch(getRDP({ name: vm.get('name'), fqdn: vm.get('fqdn'), domain, username })),
+      onShutdown: () => dispatch(Actions.shutdownVm({ vmId: vm.get('id'), force: false })),
+      onRestart: () => dispatch(Actions.restartVm({ vmId: vm.get('id'), force: false })),
+      onForceShutdown: () => dispatch(Actions.shutdownVm({ vmId: vm.get('id'), force: true })),
+      onSuspend: () => dispatch(Actions.suspendVm({ vmId: vm.get('id') })),
+      onRemove: ({ preserveDisks }) => dispatch(Actions.removeVm({ vmId: vm.get('id'), preserveDisks })),
+      onStartPool: () => dispatch(Actions.startPool({ poolId: pool.get('id') })),
+      onStartVm: () => dispatch(Actions.startVm({ vmId: vm.get('id') })),
+      onOpenConsole: ({ consoleType }) => {
+        dispatch(Actions.openConsole({
+          vmId: vm.get('id'),
+          consoleType,
+        }))
+      },
     })
-  )(VmActions)
+  )(withMsg(VmActions))
 )

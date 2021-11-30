@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useContext } from 'react'
 import PropTypes from 'prop-types'
 import {
   CardTitle,
@@ -13,7 +13,7 @@ import {
 import DonutChart from './UtilizationCharts/DonutChart'
 import AreaChart from './UtilizationCharts/AreaChart'
 
-import { msg } from '_/intl'
+import { MsgContext } from '_/intl'
 
 import style from './style.css'
 
@@ -29,9 +29,10 @@ import NoLiveData from './NoLiveData'
  *       statistics from the NICs to get different, finer grained details.
  */
 const NetworkingCharts = ({ netStats, isRunning, id }) => {
+  const { msg } = useContext(MsgContext)
   const haveNetworkStats = !!netStats['current.total']
 
-  const used = (netStats['current.total'] && netStats['current.total'].datum) || 0
+  const used = (netStats['current.total'] && netStats['current.total'].firstDatum) || 0
   const available = 100 - used
 
   // NOTE: Network history comes sorted from newest to oldest
@@ -45,42 +46,42 @@ const NetworkingCharts = ({ netStats, isRunning, id }) => {
         { isRunning && !haveNetworkStats &&
           <NoLiveData id={`${id}-no-live-data`} message={msg.utilizationNoNetStats()} />
         }
-        { isRunning && haveNetworkStats &&
-        <React.Fragment>
-          <UtilizationCardDetails>
-            <UtilizationCardDetailsCount id={`${id}-available`}>{available}%</UtilizationCardDetailsCount>
-            <UtilizationCardDetailsDesc>
-              <UtilizationCardDetailsLine1>{msg.utilizationCardAvailable()}</UtilizationCardDetailsLine1>
-              <UtilizationCardDetailsLine2>{msg.utilizationCardOf100()}</UtilizationCardDetailsLine2>
-            </UtilizationCardDetailsDesc>
-          </UtilizationCardDetails>
-          <DonutChart
-            id={`${id}-donut-chart`}
-            data={[
-              {
-                x: msg.utilizationCardLegendUsedP(),
-                y: used,
-                label: `${msg.utilizationCardLegendUsed()} - ${used}%`,
-              },
-              {
-                x: msg.utilizationCardLegendAvailableP(),
-                y: available,
-                label: `${msg.utilizationCardAvailable()} - ${available}%`,
-              },
-            ]}
-            subTitle={msg.utilizationCardLegendUsedP()}
-            title={`${used}`}
-          />
-          { history.length === 0 && <NoHistoricData id={`${id}-no-historic-data`} /> }
-          { history.length > 0 &&
-            <AreaChart
-              id={`${id}-history-chart`}
-              data={history.map((item, i) => ({ x: i, y: item, name: 'cpu' }))}
-              labels={datum => `${datum.y}%`}
+        { isRunning && haveNetworkStats && (
+          <>
+            <UtilizationCardDetails>
+              <UtilizationCardDetailsCount id={`${id}-available`}>{available}%</UtilizationCardDetailsCount>
+              <UtilizationCardDetailsDesc>
+                <UtilizationCardDetailsLine1>{msg.utilizationCardAvailable()}</UtilizationCardDetailsLine1>
+                <UtilizationCardDetailsLine2>{msg.utilizationCardOf100()}</UtilizationCardDetailsLine2>
+              </UtilizationCardDetailsDesc>
+            </UtilizationCardDetails>
+            <DonutChart
+              id={`${id}-donut-chart`}
+              data={[
+                {
+                  x: msg.utilizationCardLegendUsedP(),
+                  y: used,
+                  label: `${msg.utilizationCardLegendUsed()}: ${used}%`,
+                },
+                {
+                  x: msg.utilizationCardLegendAvailableP(),
+                  y: available,
+                  label: `${msg.utilizationCardAvailable()}: ${available}%`,
+                },
+              ]}
+              subTitle={msg.utilizationCardLegendUsedP()}
+              title={`${used}`}
             />
-          }
-        </React.Fragment>
-        }
+            { history.length === 0 && <NoHistoricData id={`${id}-no-historic-data`} /> }
+            { history.length > 0 && (
+              <AreaChart
+                id={`${id}-history-chart`}
+                data={history.map((item, i) => ({ x: i, y: item, name: 'cpu' }))}
+                labels={datum => `${datum.y}%`}
+              />
+            )}
+          </>
+        )}
       </CardBody>
     </UtilizationCard>
   )

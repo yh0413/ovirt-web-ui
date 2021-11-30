@@ -2,19 +2,24 @@ import React from 'react'
 import PropTypes from 'prop-types'
 import { connect } from 'react-redux'
 
-import { selectPoolDetail } from '_/actions'
+import { getSinglePool } from '_/actions'
 import { RouterPropTypeShapes } from '_/propTypeShapes'
 
 import VmsList from '../VmsList'
 import VmDetails from '../VmDetails'
 import VmConsole from '../VmConsole'
 import Handler404 from '_/Handler404'
+import { GlobalSettings } from '../UserSettings'
 
 /**
  * Route component (for PageRouter) to view the list of VMs and Pools
  */
 const VmsListPage = () => {
   return <VmsList />
+}
+
+const GlobalSettingsPage = () => {
+  return <GlobalSettings />
 }
 
 /**
@@ -74,7 +79,7 @@ const VmDetailsPageConnected = connect(
     vms: state.vms,
   }),
   (dispatch) => ({
-    fetchPool: (poolId) => dispatch(selectPoolDetail({ poolId })),
+    fetchPool: (poolId) => dispatch(getSinglePool({ poolId })),
   })
 )(VmDetailsPage)
 
@@ -85,7 +90,7 @@ class VmConsolePage extends React.Component {
   render () {
     const { vms, match } = this.props
     if (match.params.id && vms.getIn(['vms', match.params.id])) {
-      return <VmConsole consoleId={match.params.console} vmId={match.params.id} />
+      return <VmConsole consoleType={match.params.consoleType} vmId={match.params.id} />
     }
     return null
   }
@@ -105,4 +110,5 @@ export {
   VmConsolePageConnected as VmConsolePage,
   VmDetailsPageConnected as VmDetailsPage,
   VmsListPage,
+  GlobalSettingsPage,
 }

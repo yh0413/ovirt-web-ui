@@ -12,21 +12,28 @@ import {
   FormControl,
   FormGroup,
   HelpBlock,
+  Checkbox,
   Icon,
   Modal,
   noop,
 } from 'patternfly-react'
-import { msg } from '_/intl'
+import { withMsg } from '_/intl'
 import style from './style.css'
 
 class NewSnapshotModal extends Component {
   constructor (props) {
     super(props)
-    this.state = { showModal: false, description: '', emptyDescription: false }
+    this.state = {
+      showModal: false,
+      description: '',
+      emptyDescription: false,
+      saveMemory: !!props.isVmRunning,
+    }
     this.open = this.open.bind(this)
     this.close = this.close.bind(this)
     this.handleSave = this.handleSave.bind(this)
     this.handleDescriptionChange = this.handleDescriptionChange.bind(this)
+    this.handleSaveMemoryChange = this.handleSaveMemoryChange.bind(this)
   }
 
   open () {
@@ -41,11 +48,16 @@ class NewSnapshotModal extends Component {
     this.setState({ description: e.target.value })
   }
 
+  handleSaveMemoryChange (e) {
+    this.setState({ saveMemory: e.target.checked })
+  }
+
   handleSave (e) {
     e.preventDefault()
     if (this.state.description.trim().length > 0) {
       const snapshot = {
         description: this.state.description,
+        persistMemoryState: this.state.saveMemory,
       }
       this.props.onAdd({ snapshot })
       this.close()
@@ -55,9 +67,9 @@ class NewSnapshotModal extends Component {
   }
 
   render () {
-    const { idPrefix } = this.props
+    const { idPrefix, msg } = this.props
 
-    let modalId = `${idPrefix}-modal`
+    const modalId = `${idPrefix}-modal`
 
     return (
       <div>
@@ -98,13 +110,28 @@ class NewSnapshotModal extends Component {
                     id={`${modalId}-description-edit`}
                   />
                   {
-                    this.state.emptyDescription &&
-                    <HelpBlock>
-                      {msg.emptySnapshotDescription()}
-                    </HelpBlock>
-                  }
+                    this.state.emptyDescription && (
+                      <HelpBlock>
+                        {msg.emptySnapshotDescription()}
+                      </HelpBlock>
+                    )}
                 </div>
               </FormGroup>
+              {
+                this.props.isVmRunning && (
+                  <FormGroup bsClass='form-group col-sm-12'>
+                    <label className='col-sm-3 control-label'>
+                      {msg.saveMemory()}
+                    </label>
+                    <div className='col-sm-9'>
+                      <Checkbox
+                        id={`${idPrefix}-snapshot-save-memory`}
+                        checked={this.state.saveMemory}
+                        onChange={this.handleSaveMemoryChange}
+                      />
+                    </div>
+                  </FormGroup>
+                )}
             </Form>
           </Modal.Body>
           <Modal.Footer>
@@ -131,6 +158,8 @@ NewSnapshotModal.propTypes = {
   idPrefix: PropTypes.string.isRequired,
   disabled: PropTypes.bool,
   onAdd: PropTypes.func.isRequired,
+  isVmRunning: PropTypes.bool,
+  msg: PropTypes.object.isRequired,
 }
 
 export default connect(
@@ -138,4 +167,4 @@ export default connect(
   (dispatch, { vmId }) => ({
     onAdd: ({ snapshot }) => dispatch(addVmSnapshot({ vmId, snapshot })),
   })
-)(NewSnapshotModal)
+)(withMsg(NewSnapshotModal))

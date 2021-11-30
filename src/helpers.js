@@ -1,6 +1,29 @@
-import { locale as appLocale, msg } from '_/intl'
+import AppConfiguration from '_/config'
+import { defaultOperatingSystemIds } from '_/constants/operatingSystems'
 
-// "payload":{"message":"Not Found","shortMessage":"LOGIN failed","type":404,"action":{"type":"LOGIN","payload":{"credentials":{"username":"admin@internal","password":"admi"}}}}}
+export function translate ({ id, params, msg }) {
+  if (!msg) {
+    console.trace('Translation object not provided.')
+  }
+  if (msg && !msg[id]) {
+    console.warn(`Unknown translation key: ${id}`)
+  }
+  // display just the id as string if there is no translation
+  return msg && msg[id] ? msg[id](params) : id
+}
+
+export function buildMessageFromRecord ({ messageDescriptor: { id, params } = {}, message }, msg) {
+  if (!id) {
+    return message
+  }
+  if (id && !message) {
+    return translate({ id, params, msg })
+  }
+  // format previously used by failedExternalAction
+  return `${translate({ id, params, msg })}\n${message}`
+}
+
+// "payload":{"message":"Not Found","messageDescriptor":{"id": "loginFailed"},"type":404,"action":{"type":"LOGIN","payload":{"credentials":{"username":"admin@internal","password":"admi"}}}}}
 export function hidePassword ({ action, param }) {
   if (action) {
     const hidden = JSON.parse(JSON.stringify(action))
@@ -18,7 +41,7 @@ export function hidePassword ({ action, param }) {
   }
 
   if (param) {
-    if (param['password']) {
+    if (param.password) {
       const hidden = JSON.parse(JSON.stringify(param))
       hidden.password = '*****'
       return hidden
@@ -47,23 +70,58 @@ export function fileDownload ({ data, fileName = 'myFile.dat', mimeType = 'appli
 
     if (navigator.msSaveBlob) { // IE10
       return navigator.msSaveBlob(new Blob([data], { type: mimeType }), fileName)
-    } else if ('download' in a) { // html5 A[download]
+    } else if ('download' in a && navigator.userAgent.indexOf('Firefox') === -1) { // html5 A[download], but not FF
       a.href = `data:${mimeType},${encodeURIComponent(data)}`
-
-      // set the 'download' attribute for <a> element; we don't want to set it for FF
-      if (navigator.userAgent.indexOf('Firefox') === -1) {
-        a.setAttribute('download', fileName)
-      }
+      a.style = 'display: none'
+      a.setAttribute('download', fileName)
 
       document.body.appendChild(a)
       a.click()
       document.body.removeChild(a)
+
       return true
-    } else { // do iframe dataURL download (old ch+FF):
-      const f = document.createElement('iframe')
-      document.body.appendChild(f)
-      f.src = `data:${mimeType},${encodeURIComponent(data)}`
-      setTimeout(() => document.body.removeChild(f), 333)
+    } else { // do iframe dataURL download (old ch + FF):
+      const myForm = document.createElement('form')
+      // textarea elements used instead of input to avoid text size limit issues
+      const textArea1 = document.createElement('textarea')
+      const textArea2 = document.createElement('textarea')
+      const textArea3 = document.createElement('textarea')
+      const ifr = document.createElement('iframe')
+      const targetName = 'FormPanel_webadmin_1'
+
+      myForm.target = targetName
+      myForm.method = 'post'
+      myForm.action = `${AppConfiguration.applicationContext}/services/attachment/${fileName}`
+      myForm.enctype = 'application/x-www-form-urlencoded'
+      myForm.style = 'display: none;'
+
+      textArea1.name = 'contenttype'
+      textArea1.appendChild(document.createTextNode(`${mimeType};+charset=UTF-8`))
+      myForm.appendChild(textArea1)
+
+      textArea2.name = 'content'
+      textArea2.appendChild(document.createTextNode(encodeURIComponent(data)))
+      myForm.appendChild(textArea2)
+
+      textArea3.name = 'encodingtype'
+      textArea3.appendChild(document.createTextNode('plain'))
+      myForm.appendChild(textArea3)
+
+      document.body.appendChild(myForm)
+
+      // we want to stay in the same page, after downloading the file
+      ifr.name = targetName
+      ifr.style = 'position:absolute;width:0;height:0;border:0'
+      document.body.appendChild(ifr)
+
+      myForm.submit()
+
+      // Cleanup the download DOM elements after it has a chance to do the download
+      setTimeout(() => {
+        document.body.removeChild(myForm)
+        document.body.removeChild(ifr)
+      }, 1000)
+
       return true
     }
   }
@@ -157,11 +215,16 @@ export function userFormatOfBytes (number, suffix = 'B', precision = 0) {
   return buildRetVal(number, suffix)
 }
 
-export function localeCompare (a, b, locale = appLocale) {
+export function localeCompare (a, b, locale) {
+  if (!locale) {
+    console.trace('Non-localized compare detected!')
+  }
+  // natural sort order thanks to "numeric" option
+  // ["b", "a10", "a2", "1"] -> [ "1", "a2", "a10", "b" ]
   return a.localeCompare(b, locale, { numeric: true })
 }
 
-export function sortedBy (array, sortBy, locale = appLocale) {
+export function sortedBy (array, sortBy, locale) {
   return array.sort((a, b) => localeCompare(a[sortBy], b[sortBy], locale))
 }
 
@@ -187,30 +250,24 @@ export function getFormatedDateTime (timestamp) {
   }
 }
 
-export function formatDateFromNow (d) {
-  const now = Date.now()
-  const date = new Date(d)
-
-  const suffixes = [ msg.secondsShort(), msg.minutesShort(), msg.hoursShort(), msg.daysShort(), msg.monthsShort(), msg.yearsShort() ]
-  const divitions = [ 1000, 60, 60, 24, 30, 12 ]
-  let elapsed = (now - date.getTime())
-  let suffix = ''
-
-  let currentIndex = 0
-  do {
-    suffix = suffixes[currentIndex]
-    elapsed = Math.floor(elapsed / divitions[currentIndex])
-    currentIndex++
-  } while (divitions[currentIndex] <= elapsed && currentIndex < suffixes.length)
-
-  return msg.timeAgo({ time: `${elapsed}${suffix}` })
-}
-
 export function filterOsByArchitecture (operatingSystems, architecture) {
   return operatingSystems.filter(os => os.get('architecture') === architecture)
+}
+export function getClusterArchitecture (clusterId, clusters) {
+  const cluster = clusters && clusters.get(clusterId)
+  return cluster && cluster.get('architecture')
+}
+
+export function getDefaultOSByArchitecture (operatingSystems, architecture) {
+  const clustersOs = filterOsByArchitecture(operatingSystems, architecture)
+  return clustersOs.find(os => defaultOperatingSystemIds.includes(os.get('id')))
 }
 
 export function findOsByName (operatingSystems, name) {
   return operatingSystems.toList().find(os =>
     os.get('name') === name)
+}
+
+export function toJS (obj) {
+  return (obj && obj.toJS && obj.toJS()) || obj
 }

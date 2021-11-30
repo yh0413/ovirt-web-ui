@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useContext } from 'react'
 import PropTypes from 'prop-types'
 import {
   CardTitle,
@@ -13,7 +13,7 @@ import {
 import DonutChart from './UtilizationCharts/DonutChart'
 import AreaChart from './UtilizationCharts/AreaChart'
 
-import { msg } from '_/intl'
+import { MsgContext } from '_/intl'
 
 import style from './style.css'
 
@@ -26,7 +26,8 @@ import NoLiveData from './NoLiveData'
  * right.
  */
 const CpuCharts = ({ cpuStats, isRunning, id, vcpus }) => {
-  const cpuUsed = cpuStats['current.total'].datum / vcpus // the average value considering the number of VM CPUs, same as in Admin Portal
+  const { msg } = useContext(MsgContext)
+  const cpuUsed = cpuStats['current.total'].firstDatum / vcpus // the average value considering the number of VM CPUs, same as in Admin Portal
   const cpuAvailable = 100 - cpuUsed
 
   // NOTE: CPU history comes sorted from newest to oldest
@@ -37,44 +38,44 @@ const CpuCharts = ({ cpuStats, isRunning, id, vcpus }) => {
       <CardTitle>{msg.utilizationCardTitleCpu()}</CardTitle>
       <CardBody>
         { !isRunning && <NoLiveData id={`${id}-no-live-data`} /> }
-        { isRunning &&
-        <React.Fragment>
-          <UtilizationCardDetails>
-            <UtilizationCardDetailsCount id={`${id}-available`}>{cpuAvailable}%</UtilizationCardDetailsCount>
-            <UtilizationCardDetailsDesc>
-              <UtilizationCardDetailsLine1>{msg.utilizationCardAvailable()}</UtilizationCardDetailsLine1>
-              <UtilizationCardDetailsLine2 id={`${id}-total`}>{msg.utilizationCardOf100()}</UtilizationCardDetailsLine2>
-            </UtilizationCardDetailsDesc>
-          </UtilizationCardDetails>
+        { isRunning && (
+          <>
+            <UtilizationCardDetails>
+              <UtilizationCardDetailsCount id={`${id}-available`}>{cpuAvailable}%</UtilizationCardDetailsCount>
+              <UtilizationCardDetailsDesc>
+                <UtilizationCardDetailsLine1>{msg.utilizationCardAvailable()}</UtilizationCardDetailsLine1>
+                <UtilizationCardDetailsLine2 id={`${id}-total`}>{msg.utilizationCardOf100()}</UtilizationCardDetailsLine2>
+              </UtilizationCardDetailsDesc>
+            </UtilizationCardDetails>
 
-          <DonutChart
-            id={`${id}-donut-chart`}
-            data={[
-              {
-                x: msg.utilizationCardLegendUsedP(),
-                y: cpuUsed,
-                label: `${msg.utilizationCardLegendUsed()} - ${cpuUsed}%`,
-              },
-              {
-                x: msg.utilizationCardLegendAvailableP(),
-                y: cpuAvailable,
-                label: `${msg.utilizationCardAvailable()} - ${cpuAvailable}%`,
-              },
-            ]}
-            subTitle={msg.utilizationCardLegendUsedP()}
-            title={`${cpuUsed}`}
-          />
-
-          { history.length === 0 && <NoHistoricData id={`${id}-no-historic-data`} /> }
-          { history.length > 0 &&
-            <AreaChart
-              id={`${id}-history-chart`}
-              data={history.map((item, i) => ({ x: i, y: item }))}
-              labels={datum => `${datum.y}%`}
+            <DonutChart
+              id={`${id}-donut-chart`}
+              data={[
+                {
+                  x: msg.utilizationCardLegendUsedP(),
+                  y: cpuUsed,
+                  label: `${msg.utilizationCardLegendUsed()}: ${cpuUsed}%`,
+                },
+                {
+                  x: msg.utilizationCardLegendAvailableP(),
+                  y: cpuAvailable,
+                  label: `${msg.utilizationCardAvailable()}: ${cpuAvailable}%`,
+                },
+              ]}
+              subTitle={msg.utilizationCardLegendUsedP()}
+              title={`${cpuUsed}`}
             />
-          }
-        </React.Fragment>
-        }
+
+            { history.length === 0 && <NoHistoricData id={`${id}-no-historic-data`} /> }
+            { history.length > 0 && (
+              <AreaChart
+                id={`${id}-history-chart`}
+                data={history.map((item, i) => ({ x: i, y: item }))}
+                labels={datum => `${datum.y}%`}
+              />
+            )}
+          </>
+        )}
       </CardBody>
     </UtilizationCard>
   )

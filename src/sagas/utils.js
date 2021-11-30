@@ -1,14 +1,22 @@
 import {
   call,
+  fork,
   put,
+  race,
   select,
+  take,
 } from 'redux-saga/effects'
 
 import AppConfiguration from '_/config'
-import { hidePassword } from '_/helpers'
-import { msg } from '_/intl'
+import { hidePassword, toJS } from '_/helpers'
 import Api from '_/ovirtapi'
-import { getUserPermits } from '_/utils'
+import semverGte from 'semver/functions/gte'
+import semverValid from 'semver/functions/valid'
+
+import {
+  DEFAULT_ARCH,
+  DEFAULT_ENGINE_OPTION_VERSION,
+} from '_/constants'
 
 import {
   checkTokenExpired,
@@ -17,33 +25,48 @@ import {
 } from '_/actions'
 
 /**
- * Resolve a promise after the given delay (in milliseconds)
+ * Resolve a promise with the given value (default to `true`) after the given delay (in milliseconds)
  */
-export const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms))
+export const delay = (ms, value = true) => new Promise(resolve => setTimeout(resolve, ms, value))
+
+// TODO: Remove after an upgrade to a redux-saga version that includes this effect
+// Adapted from https://redux-saga.js.org/docs/api#debouncems-pattern-saga-args
+export function* debounce (interval, pattern, saga) {
+  while (true) {
+    let action = yield take(pattern)
+
+    while (true) {
+      const { debounced, latestAction } = yield race({
+        debounced: delay(interval),
+        latestAction: take(pattern),
+      })
+
+      if (debounced) {
+        yield fork(saga, action)
+        break
+      }
+
+      action = latestAction
+    }
+  }
+}
 
 /**
- * Compare the actual { major, minor } version to the required { major, minor } and
+ * Compare the actual { major, minor, build} version to the required { major, minor} and
  * return if the **actual** is greater then or equal to **required**.
  *
  * Backward compatibility of the API is assumed.
  */
 export function compareVersion (actual, required) {
-  console.log(`compareVersion(), actual=${JSON.stringify(actual)}, required=${JSON.stringify(required)}`)
-
-  if (actual.major >= required.major) {
-    if (actual.major === required.major) {
-      if (actual.minor < required.minor) {
-        return false
-      }
-    }
-    return true
-  }
-  return false
+  const fullActual = `${actual.major}.${actual.minor}.${actual.build}`
+  const fullRequired = `${required.major}.${required.minor}.0`
+  console.log(`compareVersion(), actual=${fullActual}, required=${fullRequired}`)
+  return !!semverValid(fullActual) && semverGte(fullActual, fullRequired)
 }
 
-export function* callExternalAction (methodName, method, action = {}, canBeMissing = false) {
+export function* callExternalAction (method, action = {}, canBeMissing = false) {
   try {
-    console.log(`External action: ${JSON.stringify(hidePassword({ action }))}, API method: ${methodName}()`)
+    console.log(`External action: ${JSON.stringify(hidePassword({ action }))}, API method: ${method.name}`)
     const result = yield call(method, action.payload || {})
     return result
   } catch (e) {
@@ -54,15 +77,15 @@ export function* callExternalAction (methodName, method, action = {}, canBeMissi
         yield put(checkTokenExpired())
       }
 
-      let shortMessage = shortErrorMessage({ action })
+      let messageDescriptor = shortErrorMessage({ action })
       if (e.status === 0 && e.statusText === 'error') { // special case, mixing https and http
-        shortMessage = 'oVirt API connection failed'
+        messageDescriptor = { id: 'apiConnectionFailed' }
         e.statusText = 'Unable to connect to oVirt REST API. Please check URL and protocol (https).'
       }
 
       yield put(failedExternalAction({
         exception: e,
-        shortMessage,
+        messageDescriptor,
         failedAction: action,
       }))
     }
@@ -92,57 +115,30 @@ export function* doCheckTokenExpired (action) {
   }
 }
 
-// TODO: Can't this be replaced by saga's blocking put.resolve()?
-export function* waitTillEqual (leftArg, rightArg, limit) {
-  let counter = limit
-
-  const left = typeof leftArg === 'function' ? leftArg : () => leftArg
-  const right = typeof rightArg === 'function' ? rightArg : () => rightArg
-
-  while (counter > 0) {
-    if (left() === right()) {
-      return true
-    }
-    yield delay(20) // in ms
-    counter--
-
-    console.log('waitTillEqual() delay ...')
-  }
-
-  return false
-}
-
 const shortMessages = {
-  'START_VM': msg.failedToStartVm(),
-  'RESTART_VM': msg.failedToRestartVm(),
-  'SHUTDOWN_VM': msg.failedToShutdownVm(),
-  'DOWNLOAD_CONSOLE_VM': msg.failedToGetVmConsole(),
-  'SUSPEND_VM': msg.failedToSuspendVm(),
-  'REMOVE_VM': msg.failedToRemoveVm(),
+  START_VM: 'failedToStartVm',
+  RESTART_VM: 'failedToRestartVm',
+  SHUTDOWN_VM: 'failedToShutdownVm',
+  SUSPEND_VM: 'failedToSuspendVm',
+  REMOVE_VM: 'failedToRemoveVm',
 
-  'GET_ICON': msg.failedToRetrieveVmIcon(),
-  'INTERNAL_CONSOLE': msg.failedToRetrieveVmConsoleDetails(),
-  'INTERNAL_CONSOLES': msg.failedToRetrieveListOfVmConsoles(),
-  'GET_DISK_DETAILS': msg.failedToRetrieveDiskDetails(),
-  'GET_DISK_ATTACHMENTS': msg.failedToRetrieveVmDisks(),
-  'GET_ISO_FILES': msg.failedToRetrieveIsoStorages(),
+  GET_ICON: 'failedToRetrieveVmIcon',
+  INTERNAL_CONSOLE: 'failedToRetrieveVmConsoleDetails',
+  INTERNAL_CONSOLES: 'failedToRetrieveListOfVmConsoles',
+  GET_DISK_DETAILS: 'failedToRetrieveDiskDetails',
+  GET_DISK_ATTACHMENTS: 'failedToRetrieveVmDisks',
+  GET_ISO_FILES: 'failedToRetrieveIsoStorages',
 
-  'GET_VM': msg.failedToRetrieveVmDetails(),
-  'CHANGE_VM_ICON': msg.failedToChangeVmIcon(),
-  'CHANGE_VM_ICON_BY_ID': msg.failedToChangeVmIconToDefault(),
+  GET_VM: 'failedToRetrieveVmDetails',
+  CHANGE_VM_ICON: 'failedToChangeVmIcon',
+  CHANGE_VM_ICON_BY_ID: 'failedToChangeVmIconToDefault',
 }
 
-export function shortErrorMessage ({ action }) {
-  return shortMessages[action.type] ? shortMessages[action.type] : msg.actionFailed({ action: action.type })
-}
-
-export function* foreach (array, fn, context) {
-  var i = 0
-  var length = array.length
-
-  for (;i < length; i++) {
-    yield * fn.call(context, array[i], i, array)
+function shortErrorMessage ({ action: { type = 'NONE' } }) {
+  if (shortMessages[type]) {
+    return { id: shortMessages[type] }
   }
+  return { id: 'actionFailed', params: { action: type } }
 }
 
 /**
@@ -160,15 +156,6 @@ export function* delayInMsSteps (count = 20, msMultiplier = 2000) {
   }
 }
 
-export function* fetchPermits ({ entityType, id }) {
-  const permissions = yield callExternalAction(`get${entityType}Permissions`, Api[`get${entityType}Permissions`], { payload: { id } })
-  return getUserPermits(Api.permissionsToInternal({ permissions: permissions.permission }))
-}
-
-export const PermissionsType = {
-  DISK_TYPE: 'Disk',
-}
-
 /**
  * Convert an entity's set of permissions to a set of permits for the app's current
  * user by mapping the permissions through their assigned roles to the permits.
@@ -181,18 +168,15 @@ export function* entityPermissionsToUserPermits (entity) {
     ? Array.isArray(entity.permissions) ? entity.permissions : [entity.permissions]
     : []
 
-  const userFilter = yield select(state => state.config.get('filter'))
   const userGroups = yield select(state => state.config.get('userGroups'))
   const userId = yield select(state => state.config.getIn(['user', 'id']))
   const roles = yield select(state => state.roles)
 
   const permitNames = []
   for (const permission of permissions) {
-    if (userFilter ||
-      (
-        (permission.groupId && userGroups.includes(permission.groupId)) ||
-        (permission.userId && permission.userId === userId)
-      )
+    if (
+      (permission.groupId && userGroups.includes(permission.groupId)) ||
+      (permission.userId && permission.userId === userId)
     ) {
       const role = roles.get(permission.roleId)
       if (!role) {
@@ -204,4 +188,44 @@ export function* entityPermissionsToUserPermits (entity) {
   }
 
   return new Set(permitNames)
+}
+
+/**
+ * Map an entity's cpuOptions config values from engine options. The mappings are based
+ * on the (custom)? compatibility version and CPU architecture.
+ */
+export function* mapCpuOptions (version, architecture) {
+  const [maxNumSockets, maxNumOfCores, maxNumOfThreads, maxNumOfVmCpusPerArch] =
+    yield select(({ config }) => [
+      config.getIn(['cpuOptions', 'maxNumOfSockets']),
+      config.getIn(['cpuOptions', 'maxNumOfCores']),
+      config.getIn(['cpuOptions', 'maxNumOfThreads']),
+      config.getIn(['cpuOptions', 'maxNumOfVmCpusPerArch']),
+    ])
+
+  const maxNumOfVmCpusPerArch_ = maxNumOfVmCpusPerArch.get(version) || maxNumOfVmCpusPerArch.get(DEFAULT_ENGINE_OPTION_VERSION)
+
+  return {
+    maxNumOfSockets: maxNumSockets.get(version) || maxNumSockets.get(DEFAULT_ENGINE_OPTION_VERSION),
+    maxNumOfCores: maxNumOfCores.get(version) || maxNumOfCores.get(DEFAULT_ENGINE_OPTION_VERSION),
+    maxNumOfThreads: maxNumOfThreads.get(version) || maxNumOfThreads.get(DEFAULT_ENGINE_OPTION_VERSION),
+    maxNumOfVmCpus: maxNumOfVmCpusPerArch_[architecture] || maxNumOfVmCpusPerArch_[DEFAULT_ARCH],
+  }
+}
+
+/**
+ * Map an entity's cluster version to the given redux `config.configValue` key.
+ *
+ * @param {string} configKey Configuration key in the `config.configValues` redux store
+ * @param {string} version Cluster version
+ * @param {*} defaultValue Value to return if key or version for the key is not found
+ */
+export function* mapConfigKeyVersion (configKey, version, defaultValue) {
+  const configValue = yield select(({ config }) => toJS(config.get(configKey, {})))
+
+  let value = defaultValue
+  if (version in configValue) {
+    value = configValue[version]
+  }
+  return value
 }

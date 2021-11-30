@@ -5,7 +5,7 @@ import { Button } from 'patternfly-react'
 
 import * as Actions from '_/actions'
 import { CREATE_PAGE_TYPE } from '_/constants'
-import { msg } from '_/intl'
+import { withMsg } from '_/intl'
 import CreateVmWizard from './CreateVmWizard'
 
 class AddVmButton extends React.Component {
@@ -33,14 +33,14 @@ class AddVmButton extends React.Component {
   }
 
   render () {
-    const { id, isEnabled } = this.props
+    const { id, isEnabled, msg } = this.props
 
     if (!isEnabled) {
       return null
     }
 
     return (
-      <React.Fragment>
+      <>
         <Button
           id={`${id}-button`}
           bsStyle='primary'
@@ -54,16 +54,18 @@ class AddVmButton extends React.Component {
           show={this.state.showCreateWizard}
           onHide={this.closeCreateWizard}
         />
-      </React.Fragment>
+      </>
     )
   }
 }
+
 AddVmButton.propTypes = {
   id: PropTypes.string,
   isEnabled: PropTypes.bool,
 
   config: PropTypes.object.isRequired,
   changePage: PropTypes.func.isRequired,
+  msg: PropTypes.object.isRequired,
 }
 
 export default connect(
@@ -74,4 +76,4 @@ export default connect(
   (dispatch) => ({
     changePage: (pageType) => dispatch(Actions.changePage({ type: pageType })),
   })
-)(AddVmButton)
+)(withMsg(AddVmButton))

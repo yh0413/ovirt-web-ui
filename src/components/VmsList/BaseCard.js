@@ -35,12 +35,13 @@ BaseCardHeader.propTypes = {
 }
 
 const BaseCardIcon = ({ url, icon }) => {
-  const i =
+  const i = (
     <VmIcon
       icon={icon}
       className={style['card-pf-icon']}
       missingIconClassName='fa fa-birthday-cake card-pf-icon-circle'
     />
+  )
 
   return (url ? <Link to={url}>{i}</Link> : i)
 }
@@ -58,14 +59,14 @@ class BaseCardTitle extends React.Component {
     if (url) {
       return (
         <Link to={url} className={style['vm-detail-link']}>
-          <div className={`${style['vm-name']} ${style['crop']}`} title={name} data-toggle='tooltip' id={`${this.context}-name`}>
+          <div className={`${style['vm-name']} ${style.crop}`} id={`${this.context}-name`}>
             {name}
           </div>
         </Link>
       )
     }
     return (
-      <div className={`${style['vm-name']} ${style['crop']}`} title={name} data-toggle='tooltip' id={`${this.context}-name`}>
+      <div className={`${style['vm-name']} ${style.crop}`} id={`${this.context}-name`}>
         {name}
       </div>
     )
@@ -113,7 +114,7 @@ const BaseCard = ({ children, idPrefix }) => {
     if (names.includes(child.type.displayName)) {
       childs[child.type.displayName] = child
     } else {
-      childs['others'].push(child)
+      childs.others.push(child)
     }
   })
   return (

@@ -3,7 +3,7 @@ import PropTypes from 'prop-types'
 import { connect } from 'react-redux'
 import { Icon } from 'patternfly-react'
 
-import { msg } from '_/intl'
+import { withMsg } from '_/intl'
 import { addVmNic, deleteVmNic, editVmNic } from '_/actions'
 
 import { Grid, Row, Col } from '_/components/Grid'
@@ -15,6 +15,7 @@ import baseStyle from '../../style.css'
 import style from './style.css'
 import NicEditor from './NicEditor'
 import NicListItem from './NicListItem'
+import { localeCompare } from '_/helpers'
 
 /*
  * Filter the set of vNIC profiles to display to the user such that:
@@ -88,7 +89,13 @@ class NicsCard extends React.Component {
   }
 
   render () {
-    const { vm, vnicProfiles, onEditChange } = this.props
+    const {
+      vm,
+      vnicProfiles,
+      onEditChange,
+      msg,
+      locale,
+    } = this.props
 
     const idPrefix = 'vmdetail-nics'
     const canEditTheCard =
@@ -100,7 +107,7 @@ class NicsCard extends React.Component {
 
     const showNicIPs = vm.get('status') === 'up'
     const nicList = vm.get('nics')
-      .sort((a, b) => a.get('name').localeCompare(b.get('name')))
+      .sort((a, b) => localeCompare(a.get('name'), b.get('name'), locale))
       .map(nic => ({
         id: nic.get('id'),
         name: nic.get('name'),
@@ -123,7 +130,7 @@ class NicsCard extends React.Component {
       <BaseCard
         icon={{ type: 'pf', name: 'network' }}
         title={msg.nic()}
-        editTooltip={msg.nicCardEditTooltip({ vmName: vm.get('name') })}
+        editTooltip={msg.edit()}
         editable={canEditTheCard}
         idPrefix={idPrefix}
         className={baseStyle['cell-card']}
@@ -132,9 +139,9 @@ class NicsCard extends React.Component {
         onCancel={() => { onEditChange(false) }}
         onSave={() => { onEditChange(false) }}
       >
-        {({ isEditing }) =>
+        {({ isEditing }) => (
           <Grid className={style['nics-container']}>
-            { isEditing && canCreateNic &&
+            { isEditing && canCreateNic && (
               <Row key={`${idPrefix}-new`} id={`${idPrefix}-new`}>
                 <Col>
                   <NicEditor
@@ -153,19 +160,20 @@ class NicsCard extends React.Component {
                   />
                 </Col>
               </Row>
-            }
+            )}
 
-            { nicList.length === 0 &&
+            { nicList.length === 0 && (
               <Row>
                 <Col>
                   <div className={itemStyle['no-items']} id={`${idPrefix}-no-nics`}>{msg.noNics()}</div>
                 </Col>
               </Row>
-            }
-            { nicList.length > 0 && nicList.map(nic =>
+            )}
+            { nicList.length > 0 && nicList.map(nic => (
               <Row key={nic.id} id={`${idPrefix}-${nic.name}`}>
                 <Col style={{ display: 'block' }}>
                   <NicListItem
+                    showNicIPs={showNicIPs}
                     idPrefix={`${idPrefix}-${nic.name}`}
                     nic={nic}
                     vmStatus={vmStatus}
@@ -176,13 +184,15 @@ class NicsCard extends React.Component {
                   />
                 </Col>
               </Row>
+            )
             )}
           </Grid>
-        }
+        )}
       </BaseCard>
     )
   }
 }
+
 NicsCard.propTypes = {
   vm: PropTypes.object.isRequired,
   onEditChange: PropTypes.func.isRequired,
@@ -193,6 +203,8 @@ NicsCard.propTypes = {
   addNic: PropTypes.func.isRequired, // eslint-disable-line react/no-unused-prop-types
   editNic: PropTypes.func.isRequired, // eslint-disable-line react/no-unused-prop-types
   deleteNic: PropTypes.func.isRequired, // eslint-disable-line react/no-unused-prop-types
+  msg: PropTypes.object.isRequired,
+  locale: PropTypes.string.isRequired,
 }
 
 export default connect(
@@ -205,4 +217,4 @@ export default connect(
     editNic: ({ nic }) => dispatch(editVmNic({ vmId: vm.get('id'), nic })),
     deleteNic: ({ nicId }) => dispatch(deleteVmNic({ vmId: vm.get('id'), nicId })),
   })
-)(NicsCard)
+)(withMsg(NicsCard))

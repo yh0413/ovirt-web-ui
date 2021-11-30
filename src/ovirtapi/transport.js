@@ -1,7 +1,7 @@
 // @flow
 
 import $ from 'jquery'
-import AppConfiguration from '../config'
+import { DEFAULT_LOCALE } from '_/intl'
 import { Exception } from '../exceptions'
 import Selectors from '../selectors'
 
@@ -39,6 +39,11 @@ function addHttpListener (listener: ListenerType) {
   listeners.add(listener)
 }
 
+let currentLocale = DEFAULT_LOCALE
+function updateLocale (locale: string) {
+  currentLocale = locale
+}
+
 function notifyStart (method: MethodType, url: string): Object {
   const requestId = { method, url }
   listeners.forEach(listener => listener(requestId, 'START'))
@@ -57,16 +62,16 @@ type InputRequestType = { url: string, input: string, contentType?: string }
 type DeleteRequestType = { url: string, custHeaders?: Object }
 
 let getCounter = 0
-const logHeaders = (headers) => JSON.stringify({ ...headers, 'Authorization': '*****' })
+const logHeaders = (headers) => JSON.stringify({ ...headers, Authorization: '*****' })
 
 function httpGet ({ url, custHeaders = {} }: GetRequestType): Promise<Object> {
   const myCounter = getCounter++
   const requestId = notifyStart('GET', url)
   const headers = {
-    'Accept': 'application/json',
-    'Authorization': `Bearer ${_getLoginToken()}`,
-    'Accept-Language': AppConfiguration.queryParams.locale, // can be: undefined, empty or string
-    'Filter': Selectors.getFilter(),
+    Accept: 'application/json',
+    Authorization: `Bearer ${_getLoginToken()}`,
+    'Accept-Language': currentLocale,
+    Filter: Selectors.getFilter(),
     ...custHeaders,
   }
 
@@ -92,10 +97,10 @@ function httpPost ({ url, input, contentType = 'application/json' }: InputReques
   return $.ajax(url, {
     type: 'POST',
     headers: {
-      'Accept': 'application/json',
-      'Authorization': `Bearer ${_getLoginToken()}`,
-      'Accept-Language': AppConfiguration.queryParams.locale,
-      'Filter': Selectors.getFilter(),
+      Accept: 'application/json',
+      Authorization: `Bearer ${_getLoginToken()}`,
+      'Accept-Language': currentLocale,
+      Filter: Selectors.getFilter(),
       'Content-Type': contentType,
     },
     data: input,
@@ -116,10 +121,10 @@ function httpPut ({ url, input, contentType = 'application/json' }: InputRequest
   return $.ajax(url, {
     type: 'PUT',
     headers: {
-      'Accept': 'application/json',
-      'Authorization': `Bearer ${_getLoginToken()}`,
-      'Accept-Language': AppConfiguration.queryParams.locale,
-      'Filter': Selectors.getFilter(),
+      Accept: 'application/json',
+      Authorization: `Bearer ${_getLoginToken()}`,
+      'Accept-Language': currentLocale,
+      Filter: Selectors.getFilter(),
       'Content-Type': contentType,
     },
     data: input,
@@ -135,13 +140,13 @@ function httpPut ({ url, input, contentType = 'application/json' }: InputRequest
     })
 }
 
-function httpDelete ({ url, custHeaders = { 'Accept': 'application/json' } }: DeleteRequestType): Promise<Object> {
+function httpDelete ({ url, custHeaders = { Accept: 'application/json' } }: DeleteRequestType): Promise<Object> {
   const requestId = notifyStart('DELETE', url)
   return $.ajax(url, {
     type: 'DELETE',
     headers: {
-      'Authorization': `Bearer ${_getLoginToken()}`,
-      'Filter': Selectors.getFilter(),
+      Authorization: `Bearer ${_getLoginToken()}`,
+      Filter: Selectors.getFilter(),
       ...custHeaders,
     },
   })
@@ -165,6 +170,7 @@ export type {
 }
 export {
   addHttpListener,
+  updateLocale,
   assertLogin,
   httpGet,
   httpPost,

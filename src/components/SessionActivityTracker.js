@@ -4,7 +4,7 @@ import { connect } from 'react-redux'
 import { MessageDialog, Icon } from 'patternfly-react'
 
 import style from './sharedStyle.css'
-import { msg } from '_/intl'
+import { withMsg } from '_/intl'
 
 import { logout } from '_/actions'
 
@@ -68,33 +68,37 @@ class SessionActivityTracker extends React.Component {
   }
 
   render () {
-    const { config, onLogout } = this.props
+    const { config, onLogout, msg } = this.props
     if (this.state.showTimeoutModal) {
-      return <MessageDialog
-        show={this.state.counter > 0 && this.state.counter <= TIME_TO_DISPLAY_MODAL}
-        primaryAction={() => this.setState({ showTimeoutModal: false, counter: config.get('userSessionTimeoutInterval') })}
-        secondaryAction={onLogout}
-        onHide={onLogout}
-        primaryContent={<p className='lead'>{ msg.sessionExpired() }</p>}
-        secondaryContent={
-          <React.Fragment>
-            <p>{ msg.logOutInSecondsSecondary({ seconds: this.state.counter }) }</p>
-            <p>{ msg.continueSessionSecondary() }</p>
-          </React.Fragment>
-        }
-        primaryActionButtonContent={msg.continueSessionBtn()}
-        secondaryActionButtonContent={msg.logOut()}
-        className={style['header-remover']}
-        icon={<Icon type='pf' name='warning-triangle-o' />}
-      />
+      return (
+        <MessageDialog
+          show={this.state.counter > 0 && this.state.counter <= TIME_TO_DISPLAY_MODAL}
+          primaryAction={() => this.setState({ showTimeoutModal: false, counter: config.get('userSessionTimeoutInterval') })}
+          secondaryAction={onLogout}
+          onHide={onLogout}
+          primaryContent={<p className='lead'>{ msg.sessionExpired() }</p>}
+          secondaryContent={(
+            <>
+              <p>{ msg.logOutInSecondsSecondary({ seconds: this.state.counter }) }</p>
+              <p>{ msg.continueSessionSecondary() }</p>
+            </>
+          )}
+          primaryActionButtonContent={msg.continueSessionBtn()}
+          secondaryActionButtonContent={msg.logOut()}
+          className={style['header-remover']}
+          icon={<Icon type='pf' name='warning-triangle-o' />}
+        />
+      )
     }
 
     return null
   }
 }
+
 SessionActivityTracker.propTypes = {
   config: PropTypes.object.isRequired,
   onLogout: PropTypes.func.isRequired,
+  msg: PropTypes.object.isRequired,
 }
 
 export default connect(
@@ -104,4 +108,4 @@ export default connect(
   (dispatch) => ({
     onLogout: () => dispatch(logout()),
   })
-)(SessionActivityTracker)
+)(withMsg(SessionActivityTracker))

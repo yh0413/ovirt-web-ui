@@ -10,7 +10,7 @@ import VmConsoleSelector from '../VmConsole/VmConsoleSelector'
 import VmConsoleInstructionsModal from '../VmConsole/VmConsoleInstructionsModal'
 import VmsListToolbar from './VmsListToolbar'
 
-import { INIT_CONSOLE, DOWNLOAD_CONSOLE } from '_/constants'
+import { NATIVE_VNC, SPICE } from '_/constants'
 
 const VmDetailToolbar = ({ match, vms }) => {
   if (vms.getIn(['vms', match.params.id])) {
@@ -39,42 +39,45 @@ const VmDetailToolbarConnected = connect(
   })
 )(VmDetailToolbar)
 
-const VmConsoleToolbar = ({ match, vms, consoles }) => {
-  if (vms.getIn(['vms', match.params.id])) {
-    const consoleStatus = [INIT_CONSOLE, DOWNLOAD_CONSOLE]
-    return <div className={`${style['console-toolbar']} container-fluid`}>
-      <div className={style['console-toolbar-actions']} style={{ marginRight: 'auto' }}>
-        <VmConsoleSelector
-          vmId={match.params.id}
-          consoleId={match.params.console}
-          isConsolePage
-        />
-        <VmConsoleInstructionsModal
-          disabled={!consoleStatus.includes(consoles.getIn(['vms', match.params.id, 'consoleStatus']))} />
+const VmConsoleToolbar = ({ match: { params: { id, consoleType } } = {}, vms }) => {
+  if (vms.getIn(['vms', id])) {
+    return (
+      <div className={`${style['console-toolbar']} container-fluid`}>
+        <div className={style['console-toolbar-actions']} style={{ marginRight: 'auto' }}>
+          <VmConsoleSelector
+            vmId={id}
+            consoleType={consoleType}
+            isConsolePage
+          />
+          <VmConsoleInstructionsModal
+            disabled={![NATIVE_VNC, SPICE].includes(consoleType)}
+          />
+        </div>
+        <div className={style['console-toolbar-actions']}>
+          <div id='vm-console-toolbar-sendkeys' />
+        </div>
       </div>
-      <div className={style['console-toolbar-actions']}>
-        <div id='vm-console-toolbar-sendkeys' />
-      </div>
-    </div>
+    )
   }
   return <div />
 }
 
 VmConsoleToolbar.propTypes = {
   vms: PropTypes.object.isRequired,
-  consoles: PropTypes.object.isRequired,
   match: RouterPropTypeShapes.match.isRequired,
 }
 
 const VmConsoleToolbarConnected = connect(
   (state) => ({
     vms: state.vms,
-    consoles: state.consoles,
   })
 )(VmConsoleToolbar)
+
+const SettingsToolbar = () => <div id='settings-toolbar' />
 
 export {
   VmDetailToolbarConnected as VmDetailToolbar,
   VmConsoleToolbarConnected as VmConsoleToolbar,
   VmsListToolbar,
+  SettingsToolbar,
 }
