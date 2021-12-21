@@ -2,7 +2,7 @@ import React from 'react'
 import PropTypes from 'prop-types'
 import { connect } from 'react-redux'
 import { Filter, FormControl } from 'patternfly-react'
-import { enumMsg } from '_/intl'
+import { enumMsg, withMsg } from '_/intl'
 import { saveVmsFilters } from '_/actions'
 import { localeCompare } from '_/helpers'
 
@@ -31,6 +31,7 @@ class VmFilters extends React.Component {
   }
 
   composeFilterTypes () {
+    const { msg, locale } = this.props
     const statuses = [
       'up',
       'powering_up',
@@ -51,23 +52,23 @@ class VmFilters extends React.Component {
     const filterTypes = [
       {
         id: 'name',
-        title: 'Name',
-        placeholder: 'Filter by Name',
+        title: msg.name(),
+        placeholder: msg.vmFilterTypePlaceholderName(),
         filterType: 'text',
       },
       {
         id: 'status',
-        title: 'Status',
-        placeholder: 'Filter by Status',
+        title: msg.status(),
+        placeholder: msg.vmFilterTypePlaceholderStatus(),
         filterType: 'select',
         filterValues: statuses
-          .map((status) => ({ title: enumMsg('VmStatus', status), id: status }))
-          .sort((a, b) => localeCompare(a.title, b.title)),
+          .map((status) => ({ title: enumMsg('VmStatus', status, msg), id: status }))
+          .sort((a, b) => localeCompare(a.title, b.title, locale)),
       },
       {
         id: 'os',
-        title: 'Operating System',
-        placeholder: 'Filter by Operating System',
+        title: msg.operatingSystem(),
+        placeholder: msg.vmFilterTypePlaceholderOS(),
         filterType: 'select',
         filterValues: Array.from(this.props.operatingSystems
           .toList()
@@ -75,14 +76,14 @@ class VmFilters extends React.Component {
             acc.add(item.get('description'))
           ), new Set()))
           .map(item => ({ title: item, id: item }))
-          .sort((a, b) => localeCompare(a.title, b.title)),
+          .sort((a, b) => localeCompare(a.title, b.title, locale)),
       },
     ]
     return filterTypes
   }
 
   filterAdded (field, value) {
-    let activeFilters = Object.assign({}, this.props.vms.get('filters').toJS())
+    const activeFilters = { ...this.props.vms.get('filters').toJS() }
     if ((field.filterType === 'select')) {
       activeFilters[field.id] = value.title
     } else {
@@ -201,6 +202,8 @@ VmFilters.propTypes = {
   operatingSystems: PropTypes.object.isRequired,
   vms: PropTypes.object.isRequired,
   onFilterUpdate: PropTypes.func.isRequired,
+  msg: PropTypes.object.isRequired,
+  locale: PropTypes.string.isRequired,
 }
 
 export default connect(
@@ -211,4 +214,4 @@ export default connect(
   (dispatch) => ({
     onFilterUpdate: (filters) => dispatch(saveVmsFilters({ filters })),
   })
-)(VmFilters)
+)(withMsg(VmFilters))

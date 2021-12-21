@@ -12,33 +12,20 @@ import { push } from 'connected-react-router'
 import Api, { Transforms } from '_/ovirtapi'
 import { saveToLocalStorage } from '_/storage'
 
+import sagasConsole from './console'
+import sagasOptions from './options'
 import sagasRefresh from './background-refresh'
 import sagasDisks from './disks'
 import sagasLogin from './login'
-import sagasOptionsDialog from '_/components/OptionsDialog/sagas'
-import sagasRoles from './roles'
-import sagasStorageDomains from './storageDomains'
 import sagasVmChanges from './vmChanges'
 import sagasVmSnapshots from '_/components/VmDetails/cards/SnapshotsCard/sagas'
 
 import {
-  updatePagingData,
-  setVmDisks,
   updateVms,
-  removeVms,
-  vmActionInProgress,
-
-  getSingleVm,
   setVmSnapshots,
 
   setUserMessages,
   dismissUserMessage,
-
-  getSinglePool,
-  removePools,
-  updatePools,
-  updateVmsPoolsCount,
-  poolActionInProgress,
 
   setVmNics,
   removeActiveRequest,
@@ -51,42 +38,27 @@ import {
   delay,
   doCheckTokenExpired,
   entityPermissionsToUserPermits,
-  foreach,
-  fetchPermits,
-  PermissionsType,
+  mapCpuOptions,
 } from './utils'
 
 import { fetchUnknownIcons } from './osIcons'
 
 import {
-  downloadVmConsole,
-  getConsoleOptions,
-  saveConsoleOptions,
-  getRDPVm,
-  openConsoleModal,
-} from './console'
-
-import {
   ADD_VM_NIC,
-  OPEN_CONSOLE_MODAL,
   CHECK_TOKEN_EXPIRED,
   CLEAR_USER_MSGS,
   DELAYED_REMOVE_ACTIVE_REQUEST,
   DELETE_VM_NIC,
   DISMISS_EVENT,
-  DOWNLOAD_CONSOLE_VM,
   EDIT_VM_NIC,
   GET_ALL_EVENTS,
   GET_BY_PAGE,
-  GET_CONSOLE_OPTIONS,
+  GET_POOL,
   GET_POOLS,
-  GET_RDP_VM,
+  GET_VM,
   GET_VMS,
-  SAVE_CONSOLE_OPTIONS,
-  SAVE_FILTERS,
-  SELECT_POOL_DETAIL,
-  SELECT_VM_DETAIL,
   NAVIGATE_TO_VM_DETAILS,
+  SAVE_FILTERS,
 } from '_/constants'
 
 import {
@@ -100,9 +72,9 @@ import AppConfiguration from '_/config'
 
 const VM_FETCH_ADDITIONAL_DEEP = [
   'cdroms',
-  'disk_attachments.disk',
+  'disk_attachments.disk.permissions',
   'graphics_consoles',
-  'nics',
+  'nics.reporteddevices',
   'permissions',
   'sessions',
   'snapshots',
@@ -110,7 +82,7 @@ const VM_FETCH_ADDITIONAL_DEEP = [
 ]
 
 const VM_FETCH_ADDITIONAL_SHALLOW = [
-  'graphics_consoles',
+  'graphics_consoles', // for backward compatibility only (before 4.4.7)
 ]
 
 export const EVERYONE_GROUP_ID = 'eee00000-0000-0000-0000-123456789eee'
@@ -124,13 +96,22 @@ export function* transformAndPermitVm (vm) {
   internalVm.canUserManipulateSnapshots = canUserManipulateSnapshots(internalVm.userPermits)
   internalVm.canUserEditVmStorage = canUserEditVmStorage(internalVm.userPermits)
 
-  return internalVm
-}
+  // Map VM attribute derived config values to the VM. The mappings are based on the
+  // VM's custom compatibility version and CPU architecture.
+  const customCompatVer = internalVm.customCompatibilityVersion
+  if (customCompatVer) {
+    internalVm.cpuOptions = yield mapCpuOptions(customCompatVer, internalVm.cpu.arch)
+  } else {
+    internalVm.cpuOptions = null
+  }
 
-function* putPermissionsInDisk (disk) {
-  disk.permits = yield fetchPermits({ entityType: PermissionsType.DISK_TYPE, id: disk.id })
-  disk.canUserEditDisk = canUserEditDisk(disk.permits)
-  return disk
+  // Permit disks fetched and transformed along with the VM
+  for (const disk of internalVm.disks) {
+    disk.userPermits = yield entityPermissionsToUserPermits(disk)
+    disk.canUserEditDisk = canUserEditDisk(disk.userPermits)
+  }
+
+  return internalVm
 }
 
 /**
@@ -138,66 +119,65 @@ function* putPermissionsInDisk (disk) {
  * be) available,
  */
 export function* fetchByPage () {
-  const [
+  const {
     vmsPage,
     vmsExpectMorePages,
     poolsPage,
     poolsExpectMorePages,
-  ] = yield select(({ vms }) => [
-    vms.get('vmsPage'), !!vms.get('vmsExpectMorePages'),
-    vms.get('poolsPage'), !!vms.get('poolsExpectMorePages'),
-  ])
-
-  function* currentVmsIds ({ payload: { count, page } }) {
-    const start = count * page
-    const end = start + count
-    return Array.from(yield select(state => state.vms.get('vms').keys())).slice(start, end)
-  }
-
-  function* currentPoolsIds ({ payload: { count, page } }) {
-    const start = count * page
-    const end = start + count
-    return Array.from(yield select(state => state.vms.get('pools').keys())).slice(start, end)
-  }
+  } = yield select(({ vms }) => ({
+    vmsPage: vms.get('vmsPage'),
+    vmsExpectMorePages: !!vms.get('vmsExpectMorePages'),
+    poolsPage: vms.get('poolsPage'),
+    poolsExpectMorePages: !!vms.get('poolsExpectMorePages'),
+  }))
 
   //
-  // If more pages are expected, fetch the next page and grab the ids fetched
-  // If no more pages are expected, grab the current page of ids from the redux store
+  // If more pages are expected, fetch the next page
+  // If no more pages are expected, skip the fetch
   //
   const count = AppConfiguration.pageLimit
-  const [ vms, pools ] = yield all([
-    call(vmsExpectMorePages ? fetchVms : currentVmsIds, { payload: { count, page: vmsPage + 1 } }),
-    call(poolsExpectMorePages ? fetchPools : currentPoolsIds, { payload: { count, page: poolsPage + 1 } }),
-  ])
+  const {
+    vms: { internalVms: vms },
+    pools: { internalPools: pools },
+  } = yield all({
+    vms: vmsExpectMorePages
+      ? call(fetchVms, { payload: { count, page: vmsPage + 1 } })
+      : { internalVms: null },
 
-  //
-  // Since the REST API doesn't give a record count in paginated responses, we have
-  // to guess if there is more to fetch.  Assume there is more to fetch if the page
-  // of ids fetched/accessed is full.
-  //
-  yield put(updatePagingData({
+    pools: poolsExpectMorePages
+      ? call(fetchPools, { payload: { count, page: poolsPage + 1 } })
+      : { internalPools: null },
+  })
+
+  // Put the new page of data to the store
+  yield put(updateVms({
+    keepSubResources: true,
+    vms,
+    pools,
+
+    //
+    // Bump the VMs / Pools page if a new page was fetched
+    //
     vmsPage: vmsExpectMorePages ? vmsPage + 1 : undefined,
-    vmsExpectMorePages: vms.length >= count,
     poolsPage: poolsExpectMorePages ? poolsPage + 1 : undefined,
-    poolsExpectMorePages: pools.length >= count,
   }))
+
+  if (vms) {
+    yield fetchUnknownIcons({ vms })
+  }
 }
 
 export function* fetchVms ({ payload: { count, page, shallowFetch = true } }) {
-  const fetchedVmIds = []
-
   const additional = shallowFetch ? VM_FETCH_ADDITIONAL_SHALLOW : VM_FETCH_ADDITIONAL_DEEP
-  const apiVms = yield callExternalAction('getVms', Api.getVms, { payload: { count, page, additional } })
-  if (apiVms && apiVms['vm']) {
-    const internalVms = []
+  const apiVms = yield callExternalAction(Api.getVms, { payload: { count, page, additional } })
+
+  let internalVms = null
+  if (apiVms?.vm) {
+    internalVms = []
     for (const apiVm of apiVms.vm) {
       const internalVm = yield transformAndPermitVm(apiVm)
-      fetchedVmIds.push(internalVm.id)
       internalVms.push(internalVm)
     }
-
-    yield put(updateVms({ vms: internalVms, copySubResources: shallowFetch }))
-    yield fetchUnknownIcons({ vms: internalVms })
 
     // NOTE: No need to fetch the current=true cdrom info at this point. The cdrom info
     //       is needed on the VM details page and `fetchSingleVm` is called upon entry
@@ -206,18 +186,27 @@ export function* fetchVms ({ payload: { count, page, shallowFetch = true } }) {
     //       details.
   }
 
-  yield put(updateVmsPoolsCount())
-  return fetchedVmIds
+  return { internalVms }
+}
+
+function* fetchAndPutVms (action) {
+  const { internalVms } = yield fetchVms(action)
+
+  if (internalVms) {
+    yield put(updateVms({ vms: internalVms, keepSubResources: action.payload.shallowFetch }))
+    yield fetchUnknownIcons({ vms: internalVms })
+  }
 }
 
 export function* fetchSingleVm (action) {
   const { vmId, shallowFetch } = action.payload
 
   action.payload.additional = shallowFetch ? VM_FETCH_ADDITIONAL_SHALLOW : VM_FETCH_ADDITIONAL_DEEP
+  const vm = yield callExternalAction(Api.getVm, action, true)
+  const error = vm.error ? vm.error.status ?? 'fetch-error' : null
 
-  const vm = yield callExternalAction('getVm', Api.getVm, action, true)
   let internalVm = null
-  if (vm && vm.id) {
+  if (vm?.id) {
     internalVm = yield transformAndPermitVm(vm)
 
     // If the VM is running, we want to display the current=true cdrom info. Due
@@ -228,64 +217,63 @@ export function* fetchSingleVm (action) {
     }
 
     if (!shallowFetch) {
-      internalVm.disks = (yield all(internalVm.disks.map(putPermissionsInDisk)))
-    }
-
-    // NOTE: Snapshot Disks and Nics are not currently (Sept-2018) available via
-    //       additional/follow param on the VM/snapshot fetch.  We need to fetch them
-    //       directly.
-    for (const snapshot of internalVm.snapshots) {
-      const follows = yield all([
-        call(fetchVmSnapshotDisks, { vmId: internalVm.id, snapshotId: snapshot.id }),
-        call(fetchVmSnapshotNics, { vmId: internalVm.id, snapshotId: snapshot.id }),
-      ])
-      snapshot.disks = follows[0]
-      snapshot.nics = follows[1]
-    }
-
-    yield put(updateVms({ vms: [internalVm], copySubResources: shallowFetch }))
-    yield fetchUnknownIcons({ vms: [internalVm] })
-  } else {
-    if (vm && vm.error && vm.error.status === 404) {
-      yield put(removeVms({ vmIds: [vmId] }))
+      yield parallelFetchAndPopulateSnapshotDisksAndNics(internalVm.id, internalVm.snapshots)
     }
   }
 
-  yield put(updateVmsPoolsCount())
-  return internalVm
+  return { vmId, internalVm, error }
+}
+
+export function* fetchAndPutSingleVm (action) {
+  const { internalVm, error } = yield fetchSingleVm(action)
+
+  if (error) {
+    if (error === 404) {
+      yield put(updateVms({ removeVmIds: [action.payload.vmId] }))
+    }
+  } else {
+    yield put(updateVms({ vms: [internalVm], keepSubResources: action.payload.shallowFetch }))
+    yield fetchUnknownIcons({ vms: [internalVm] })
+  }
 }
 
 export function* fetchPools (action) {
-  const fetchedPoolIds = []
+  const apiPools = yield callExternalAction(Api.getPools, action)
 
-  const apiPools = yield callExternalAction('getPools', Api.getPools, action)
-  if (apiPools && apiPools['vm_pool']) {
-    const internalPools = apiPools.vm_pool.map(pool => Api.poolToInternal({ pool }))
-    internalPools.forEach(pool => fetchedPoolIds.push(pool.id))
+  const internalPools = apiPools?.vm_pool
+    ? apiPools.vm_pool.map(pool => Transforms.Pool.toInternal({ pool }))
+    : null
 
-    yield put(updatePools({ pools: internalPools }))
-    yield put(updateVmsPoolsCount())
+  return { internalPools }
+}
+
+function* fetchAndPutPools (action) {
+  const { internalPools } = yield fetchPools(action)
+
+  if (internalPools) {
+    yield put(updateVms({ pools: internalPools }))
   }
-
-  return fetchedPoolIds
 }
 
 export function* fetchSinglePool (action) {
-  const { poolId } = action.payload
+  const pool = yield callExternalAction(Api.getPool, action, true)
 
-  const pool = yield callExternalAction('getPool', Api.getPool, action, true)
-  let internalPool = false
-  if (pool && pool.id) {
-    internalPool = Api.poolToInternal({ pool })
-    yield put(updatePools({ pools: [internalPool] }))
-  } else {
-    if (pool && pool.error && pool.error.status === 404) {
-      yield put(removePools({ poolIds: [poolId] }))
+  const internalPool = pool.id ? Transforms.Pool.toInternal({ pool }) : null
+  const error = pool.error ? pool.error.status ?? 'fetch-error' : null
+
+  return { poolId: action.payload.poolId, internalPool, error }
+}
+
+function* fetchAndPutSinglePool (action) {
+  const { internalPool, error } = yield fetchSinglePool(action)
+
+  if (error) {
+    if (error === 404) {
+      yield put(updateVms({ removePoolIds: [action.payload.poolId] }))
     }
+  } else {
+    yield put(updateVms({ pools: [internalPool] }))
   }
-
-  yield put(updateVmsPoolsCount())
-  return internalPool
 }
 
 /*
@@ -293,44 +281,27 @@ export function* fetchSinglePool (action) {
  * info comes from "current=true" while a non-running VM's cdrom info comes from the
  * next_run/"current=false" API parameter.
  */
-function* fetchVmCdRom ({ vmId, current }) {
-  const cdrom = yield callExternalAction('getCdRom', Api.getCdRom, getVmCdRom({ vmId, current }))
+function* fetchVmCdRom ({ vmId, current = true }) {
+  const cdrom = yield callExternalAction(Api.getCdRom, getVmCdRom({ vmId, current }))
 
   let cdromInternal = null
   if (cdrom) {
-    cdromInternal = Api.cdRomToInternal({ cdrom })
+    cdromInternal = Transforms.CdRom.toInternal({ cdrom })
   }
   return cdromInternal
 }
 
-export function* fetchDisks ({ vms }) {
-  yield * foreach(vms, function* (vm) {
-    const vmId = vm.id
-    const disks = yield fetchVmDisks({ vmId })
-    yield put(setVmDisks({ vmId, disks }))
-  })
-}
-
-function* fetchVmDisks ({ vmId }) {
-  // TODO: Enhance to use the `follow` API parameter (in API >=4.2) to reduce the request count
-  //       This should follow the same style as `fetchSingleVm` and would require an extension to `Api.diskattachments`
-  const diskattachments = yield callExternalAction('diskattachments', Api.diskattachments, { type: 'GET_DISK_ATTACHMENTS', payload: { vmId } })
-
-  if (diskattachments && diskattachments['disk_attachment']) { // array
-    const internalDisks = []
-    yield * foreach(diskattachments['disk_attachment'], function* (attachment) {
-      const diskId = attachment.disk.id
-      const disk = yield callExternalAction('disk', Api.disk, { type: 'GET_DISK_DETAILS', payload: { diskId } })
-      const internalDisk = yield putPermissionsInDisk(Api.diskToInternal({ disk, attachment }))
-      internalDisks.push(internalDisk)
-    })
-    return internalDisks
+function* fetchVmNics ({ vmId }) {
+  const nics = yield callExternalAction(Api.getVmNic, { type: 'GET_VM_NICS', payload: { vmId } })
+  if (nics && nics.nic) {
+    const nicsInternal = nics.nic.map(nic => Transforms.Nic.toInternal({ nic }))
+    return nicsInternal
   }
   return []
 }
 
 export function* addVmNic (action) {
-  const nic = yield callExternalAction('addNicToVm', Api.addNicToVm, action)
+  const nic = yield callExternalAction(Api.addNicToVm, action)
 
   if (nic && nic.id) {
     const nicsInternal = yield fetchVmNics({ vmId: action.payload.vmId })
@@ -339,49 +310,17 @@ export function* addVmNic (action) {
 }
 
 function* deleteVmNic (action) {
-  yield callExternalAction('deleteNicFromVm', Api.deleteNicFromVm, action)
+  yield callExternalAction(Api.deleteNicFromVm, action)
 
   const nicsInternal = yield fetchVmNics({ vmId: action.payload.vmId })
   yield put(setVmNics({ vmId: action.payload.vmId, nics: nicsInternal }))
 }
 
 function* editVmNic (action) {
-  yield callExternalAction('editNicInVm', Api.editNicInVm, action)
+  yield callExternalAction(Api.editNicInVm, action)
 
   const nicsInternal = yield fetchVmNics({ vmId: action.payload.vmId })
   yield put(setVmNics({ vmId: action.payload.vmId, nics: nicsInternal }))
-}
-
-function* getSingleInstance ({ vmId, poolId }) {
-  const fetches = [ fetchSingleVm(getSingleVm({ vmId })) ]
-  if (poolId) {
-    fetches.push(fetchSinglePool(getSinglePool({ poolId })))
-  }
-  yield all(fetches)
-}
-
-export function* startProgress ({ vmId, poolId, name }) {
-  if (vmId) {
-    yield put(vmActionInProgress({ vmId, name, started: true }))
-  } else {
-    yield put(poolActionInProgress({ poolId, name, started: true }))
-  }
-}
-
-export function* stopProgress ({ vmId, poolId, name, result }) {
-  const actionInProgress = vmId ? vmActionInProgress : poolActionInProgress
-  if (result && result.status === 'complete') {
-    vmId = vmId || result.vm.id
-    // do not call 'end of in progress' if successful,
-    // since UI will be updated by refresh
-    yield delay(5 * 1000)
-    yield getSingleInstance({ vmId, poolId })
-
-    yield delay(30 * 1000)
-    yield getSingleInstance({ vmId, poolId })
-  }
-
-  yield put(actionInProgress(Object.assign(vmId ? { vmId } : { poolId }, { name, started: false })))
 }
 
 function* fetchAllEvents (action) {
@@ -390,7 +329,7 @@ function* fetchAllEvents (action) {
     name: `${state.config.getIn(['user', 'name'])}@${state.config.get('domain')}`,
   }))
 
-  const events = yield callExternalAction('events', Api.events, { payload: {} })
+  const events = yield callExternalAction(Api.events, { payload: {} })
 
   if (events.error) {
     return
@@ -403,7 +342,7 @@ function* fetchAllEvents (action) {
         event.user &&
         (event.user.id === user.id || event.user.name === user.name)
       )
-      .map((event) => Api.eventToInternal({ event }))
+      .map((event) => Transforms.Event.toInternal({ event }))
     : []
   yield put(setUserMessages({ messages: internalEvents }))
 }
@@ -411,7 +350,7 @@ function* fetchAllEvents (action) {
 function* dismissEvent (action) {
   const { event } = action.payload
   if (event.source === 'server') {
-    const result = yield callExternalAction('dismissEvent', Api.dismissEvent, { payload: { eventId: event.id } })
+    const result = yield callExternalAction(Api.dismissEvent, { payload: { eventId: event.id } })
 
     if (result.status === 'complete') {
       yield fetchAllEvents(action)
@@ -426,7 +365,7 @@ function* clearEvents (action) {
     id: state.config.getIn(['user', 'id']),
     name: `${state.config.getIn(['user', 'name'])}@${state.config.get('domain')}`,
   }))
-  const events = yield callExternalAction('events', Api.events, { payload: {} })
+  const events = yield callExternalAction(Api.events, { payload: {} })
 
   if (events.error) {
     return
@@ -438,7 +377,7 @@ function* clearEvents (action) {
         event.severity === 'error' &&
         event.user &&
         (event.user.id === user.id || event.user.name === user.name)
-      ).map((event) => callExternalAction('dismissEvent', Api.dismissEvent, { payload: { eventId: event.id } }))
+      ).map((event) => callExternalAction(Api.dismissEvent, { payload: { eventId: event.id } }))
     : []
 
   yield all(sagaEvents)
@@ -447,32 +386,12 @@ function* clearEvents (action) {
 }
 
 export function* fetchVmSessions ({ vmId }) {
-  const sessions = yield callExternalAction('sessions', Api.sessions, { payload: { vmId } })
+  const sessions = yield callExternalAction(Api.sessions, { payload: { vmId } })
 
-  if (sessions && sessions['session']) {
-    return Api.sessionsToInternal({ sessions })
+  if (sessions && sessions.session) {
+    return Transforms.VmSessions.toInternal({ sessions })
   }
   return []
-}
-
-export function* fetchVmPermissions ({ vmId }) {
-  const permissions = yield callExternalAction('getVmPermissions', Api.getVmPermissions, { payload: { vmId } })
-
-  if (permissions && permissions['permission']) {
-    return Api.permissionsToInternal({ permissions: permissions.permission })
-  }
-  return []
-}
-
-/**
- * VmDetail is to be rendered.
- */
-export function* selectVmDetail (action) {
-  yield fetchSingleVm(getSingleVm({ vmId: action.payload.vmId })) // async data refresh
-}
-
-function* selectPoolDetail (action) {
-  yield fetchSinglePool(getSinglePool({ poolId: action.payload.poolId }))
 }
 
 function* saveFilters (actions) {
@@ -482,52 +401,71 @@ function* saveFilters (actions) {
   yield put(setVmsFilters({ filters }))
 }
 
-function* fetchVmNics ({ vmId }) {
-  const nics = yield callExternalAction('getVmNic', Api.getVmNic, { type: 'GET_VM_NICS', payload: { vmId } })
-  if (nics && nics['nic']) {
-    const nicsInternal = nics.nic.map(nic => Api.nicToInternal({ nic }))
-    return nicsInternal
-  }
-  return []
-}
-
 export function* fetchVmSnapshots ({ vmId }) {
-  const snapshots = yield callExternalAction('snapshots', Api.snapshots, { type: 'GET_VM_SNAPSHOT', payload: { vmId } })
+  const snapshots = yield callExternalAction(Api.snapshots, { type: 'GET_VM_SNAPSHOT', payload: { vmId } })
   let snapshotsInternal = []
 
   if (snapshots && snapshots.snapshot) {
-    snapshotsInternal = snapshots.snapshot.map(snapshot => Api.snapshotToInternal({ snapshot }))
-
-    // NOTE: Snapshot Disks and Nics are not currently (Sept-2018) available via
-    //       additional/follow param on the snapshot fetch.  We need to fetch them
-    //       directly.
-    for (const snapshot of snapshotsInternal) {
-      const follows = yield all([
-        call(fetchVmSnapshotDisks, { vmId, snapshotId: snapshot.id }),
-        call(fetchVmSnapshotNics, { vmId, snapshotId: snapshot.id }),
-      ])
-      snapshot.disks = follows[0]
-      snapshot.nics = follows[1]
-    }
+    snapshotsInternal = snapshots.snapshot.map(snapshot => Transforms.Snapshot.toInternal({ snapshot }))
+    yield parallelFetchAndPopulateSnapshotDisksAndNics(vmId, snapshotsInternal)
   }
 
   yield put(setVmSnapshots({ vmId, snapshots: snapshotsInternal }))
 }
 
+/**
+ * Setup all of the calls needed to fetch, transform and populate the disks and nics
+ * for a set of VM snapshots.  To minimize wall clock time, all of the required fetches
+ * are done in parallel.
+ *
+ * This technique is required since snapshot disks and nics are not currently (July-2021)
+ * available via additional/follow param on the VM/snapshot fetch.  They need to be
+ * fetched directly.
+ *
+ * NOTE: Looks like the `?follows=snapshots` returns the active and regular snapshots.
+ *       The active snapshot does not contain links to disks and nics, but the regular
+ *       ones do.  That is probably the reason why the VM REST API call with
+ *       `?follows=snapshots.disks` fails.
+ *
+ * @param {string} vmId VM to work on
+ * @param {*} snapshots Array of internal `SnapshotType` objects
+ * @returns
+ */
+function* parallelFetchAndPopulateSnapshotDisksAndNics (vmId, snapshots) {
+  if (!Array.isArray(snapshots) || snapshots.length === 0) {
+    return
+  }
+
+  const fetches = []
+  for (const snapshot of snapshots.filter(snapshot => snapshot.type !== 'active')) {
+    fetches.push(
+      call(fetchVmSnapshotDisks, { vmId, snapshotId: snapshot.id }),
+      call(fetchVmSnapshotNics, { vmId, snapshotId: snapshot.id })
+    )
+  }
+
+  const results = yield all(fetches)
+
+  for (const snapshot of snapshots.filter(snapshot => snapshot.type !== 'active')) {
+    snapshot.disks = results.shift()
+    snapshot.nics = results.shift()
+  }
+}
+
 function* fetchVmSnapshotDisks ({ vmId, snapshotId }) {
-  const disks = yield callExternalAction('snapshotDisks', Api.snapshotDisks, { payload: { vmId, snapshotId } }, true)
+  const disks = yield callExternalAction(Api.snapshotDisks, { payload: { vmId, snapshotId } }, true)
   let disksInternal = []
-  if (disks && disks.disk) {
-    disksInternal = disks.disk.map(disk => Api.diskToInternal({ disk }))
+  if (disks?.disk) {
+    disksInternal = disks.disk.map(disk => Transforms.DiskAttachment.toInternal({ disk }))
   }
   return disksInternal
 }
 
 function* fetchVmSnapshotNics ({ vmId, snapshotId }) {
-  const nics = yield callExternalAction('snapshotNics', Api.snapshotNics, { payload: { vmId, snapshotId } }, true)
+  const nics = yield callExternalAction(Api.snapshotNics, { payload: { vmId, snapshotId } }, true)
   let nicsInternal = []
-  if (nics && nics.nic) {
-    nicsInternal = nics.nic.map((nic) => Api.nicToInternal({ nic }))
+  if (nics?.nic) {
+    nicsInternal = nics.nic.map((nic) => Transforms.Nic.toInternal({ nic }))
   }
   return nicsInternal
 }
@@ -546,38 +484,32 @@ export function* rootSaga () {
     ...sagasLogin,
     ...sagasRefresh,
 
-    takeLatest(CHECK_TOKEN_EXPIRED, doCheckTokenExpired),
+    takeEvery(CHECK_TOKEN_EXPIRED, doCheckTokenExpired),
     takeEvery(DELAYED_REMOVE_ACTIVE_REQUEST, delayedRemoveActiveRequest),
 
-    throttle(100, GET_BY_PAGE, fetchByPage),
-    throttle(100, GET_VMS, fetchVms),
-    throttle(100, GET_POOLS, fetchPools),
+    throttle(100, GET_VMS, fetchAndPutVms),
+    throttle(100, GET_POOLS, fetchAndPutPools),
 
     takeLatest(GET_ALL_EVENTS, fetchAllEvents),
     takeEvery(DISMISS_EVENT, dismissEvent),
     takeEvery(CLEAR_USER_MSGS, clearEvents),
 
     takeLatest(NAVIGATE_TO_VM_DETAILS, navigateToVmDetails),
-    takeEvery(SELECT_VM_DETAIL, selectVmDetail),
-    takeEvery(SELECT_POOL_DETAIL, selectPoolDetail),
+    takeEvery(GET_VM, fetchAndPutSingleVm),
+    takeEvery(GET_POOL, fetchAndPutSinglePool),
+
+    throttle(100, GET_BY_PAGE, fetchByPage),
 
     takeEvery(ADD_VM_NIC, addVmNic),
     takeEvery(DELETE_VM_NIC, deleteVmNic),
     takeEvery(EDIT_VM_NIC, editVmNic),
 
-    takeEvery(GET_CONSOLE_OPTIONS, getConsoleOptions),
-    takeEvery(SAVE_CONSOLE_OPTIONS, saveConsoleOptions),
-    takeEvery(OPEN_CONSOLE_MODAL, openConsoleModal),
-    takeEvery(DOWNLOAD_CONSOLE_VM, downloadVmConsole),
-    takeEvery(GET_RDP_VM, getRDPVm),
-
     takeEvery(SAVE_FILTERS, saveFilters),
 
     // Sagas from Components
+    ...sagasConsole,
     ...sagasDisks,
-    ...sagasOptionsDialog,
-    ...sagasRoles,
-    ...sagasStorageDomains,
+    ...sagasOptions,
     ...sagasVmChanges,
     ...sagasVmSnapshots,
   ])

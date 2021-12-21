@@ -4,7 +4,7 @@ import { connect } from 'react-redux'
 
 import { createDiskForVm, editDiskOnVm, removeDisk } from '_/actions'
 
-import { msg } from '_/intl'
+import { withMsg } from '_/intl'
 import { maskForElementId, suggestDiskName, sortDisksForDisplay } from '_/components/utils'
 
 import { Icon } from 'patternfly-react'
@@ -16,6 +16,7 @@ import DiskListItem from './DiskListItem'
 import itemStyle from '../../itemListStyle.css'
 import baseStyle from '../../style.css'
 import style from './style.css'
+import { localeCompare } from '_/helpers'
 
 function filterStorageDomains (vm, clusters, storageDomains) {
   const clusterId = vm.getIn(['cluster', 'id'])
@@ -40,7 +41,7 @@ function suggestDiskName_ (vm) {
  * Suggest a storage domain to use for new disks based on what storage domains are used by the
  * disks already attached the the VM.
  */
-function suggestStorageDomain (vm, clusters, storageDomains) {
+function suggestStorageDomain ({ vm, clusters, storageDomains, locale }) {
   const filtered = filterStorageDomains(vm, clusters, storageDomains).map(sd => sd.get('id'))
 
   if (vm.get('disks') && vm.get('disks').length === 0) {
@@ -51,7 +52,7 @@ function suggestStorageDomain (vm, clusters, storageDomains) {
   vm.get('disks')
     .map(disk => disk.get('storageDomainId'))
     .filter(sdId => filtered.includes(sdId))
-    .sort((a, b) => storageDomains.get(a).get('name').localeCompare(storageDomains.get(b).get('name')))
+    .sort((a, b) => localeCompare(storageDomains.get(a).get('name'), storageDomains.get(b).get('name'), locale))
     .reduce((acc, sdId) => acc.set(sdId, (acc.get(sdId) || 0) + 1), new Map())
     .forEach((count, sdId) => {
       if (count > mostCommon.count) {
@@ -69,11 +70,11 @@ function suggestStorageDomain (vm, clusters, storageDomains) {
 class DisksCard extends React.Component {
   constructor (props) {
     super(props)
-
+    const { vm, clusters, storageDomains, locale } = this.props
     this.state = {
-      suggestedDiskName: suggestDiskName_(props.vm),
-      suggestedStorageDomain: suggestStorageDomain(props.vm, props.clusters, props.storageDomains),
-      filteredStorageDomainList: filterStorageDomains(props.vm, props.clusters, props.storageDomains),
+      suggestedDiskName: suggestDiskName_(vm),
+      suggestedStorageDomain: suggestStorageDomain({ vm, clusters, storageDomains, locale }),
+      filteredStorageDomainList: filterStorageDomains(vm, clusters, storageDomains),
     }
 
     this.onCreateConfirm = this.onCreateConfirm.bind(this)
@@ -82,12 +83,12 @@ class DisksCard extends React.Component {
   }
 
   componentDidUpdate (prevProps, prevState) {
-    const { vm, clusters, storageDomains } = this.props
+    const { vm, clusters, storageDomains, locale } = this.props
     const changes = {}
 
     if (prevProps.vm !== vm) {
       changes.suggestedDiskName = suggestDiskName_(vm)
-      changes.suggestedStorageDomain = suggestStorageDomain(vm, clusters, storageDomains)
+      changes.suggestedStorageDomain = suggestStorageDomain({ vm, clusters, storageDomains, locale })
     }
 
     if (prevProps.vm !== vm || prevProps.storageDomains !== storageDomains) {
@@ -112,7 +113,7 @@ class DisksCard extends React.Component {
   }
 
   render () {
-    const { vm, onEditChange } = this.props
+    const { vm, onEditChange, msg, locale } = this.props
     const { suggestedDiskName, suggestedStorageDomain, filteredStorageDomainList } = this.state
 
     const idPrefix = 'vmdetail-disks'
@@ -123,14 +124,14 @@ class DisksCard extends React.Component {
     const canCreateDisks = filteredStorageDomainList.size > 0
     const canDeleteDisks = vm.get('status') === 'down'
 
-    const diskList = sortDisksForDisplay(vm.get('disks')) // ImmutableJS List()
+    const diskList = sortDisksForDisplay(vm.get('disks'), locale) // ImmutableJS List()
 
     return (
       <BaseCard
         idPrefix={idPrefix}
         icon={{ type: 'pf', name: 'storage-domain' }}
         title={msg.disks()}
-        editTooltip={msg.disksCardEditTooltip({ vmName: vm.get('name') })}
+        editTooltip={msg.edit()}
         itemCount={diskList.size}
         className={baseStyle['cell-card']}
         editable={canEditTheCard}
@@ -138,9 +139,9 @@ class DisksCard extends React.Component {
         onCancel={() => { onEditChange(false) }}
         onSave={() => { onEditChange(false) }}
       >
-        {({ isEditing }) =>
+        {({ isEditing }) => (
           <Grid className={style['disks-container']}>
-            { isEditing && canCreateDisks &&
+            { isEditing && canCreateDisks && (
               <Row key={`${vm.get('id')}-disk-add`}>
                 <Col>
                   <DiskImageEditor
@@ -161,17 +162,17 @@ class DisksCard extends React.Component {
                   />
                 </Col>
               </Row>
-            }
+            )}
 
-            { diskList.size === 0 &&
+            { diskList.size === 0 && (
               <Row>
                 <Col>
                   <div className={itemStyle['no-items']} id={`${idPrefix}-no-disks`}>{msg.noDisks()}</div>
                 </Col>
               </Row>
-            }
+            )}
 
-            { diskList.size > 0 && diskList.map(disk =>
+            { diskList.size > 0 && diskList.map(disk => (
               <Row key={disk.get('id')}>
                 <Col style={{ display: 'block' }}>
                   <DiskListItem
@@ -186,13 +187,15 @@ class DisksCard extends React.Component {
                   />
                 </Col>
               </Row>
+            )
             )}
           </Grid>
-        }
+        )}
       </BaseCard>
     )
   }
 }
+
 DisksCard.propTypes = {
   vm: PropTypes.object.isRequired,
   onEditChange: PropTypes.func.isRequired,
@@ -203,6 +206,8 @@ DisksCard.propTypes = {
   addDisk: PropTypes.func.isRequired,
   editDisk: PropTypes.func.isRequired,
   deleteDisk: PropTypes.func.isRequired,
+  msg: PropTypes.object.isRequired,
+  locale: PropTypes.string.isRequired,
 }
 
 export default connect(
@@ -215,4 +220,4 @@ export default connect(
     editDisk: ({ vmId, disk }) => dispatch(editDiskOnVm({ vmId, disk })),
     deleteDisk: ({ vmId, diskId }) => dispatch(removeDisk({ diskId, vmToRefreshId: vmId })),
   })
-)(DisksCard)
+)(withMsg(DisksCard))

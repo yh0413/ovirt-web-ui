@@ -1,17 +1,18 @@
-import React from 'react'
+import React, { useContext } from 'react'
 import PropTypes from 'prop-types'
 import {
   FormControl,
   ControlLabel,
   FormGroup,
 } from 'patternfly-react'
-import { msg } from '_/intl'
+import { MsgContext } from '_/intl'
 
 const CloudInitForm = ({ idPrefix, vm, onChange }) => {
+  const { msg } = useContext(MsgContext)
   const cloudInitHostName = vm.getIn(['cloudInit', 'hostName'])
   const cloudInitSshAuthorizedKeys = vm.getIn(['cloudInit', 'sshAuthorizedKeys'])
   return (
-    <React.Fragment>
+    <>
       <FormGroup controlId={`${idPrefix}-cloud-init-hostname`}>
         <ControlLabel>
           {msg.hostName()}
@@ -32,7 +33,7 @@ const CloudInitForm = ({ idPrefix, vm, onChange }) => {
           onChange={e => onChange('cloudInitSshAuthorizedKeys', e.target.value)}
         />
       </FormGroup>
-    </React.Fragment>
+    </>
   )
 }
 

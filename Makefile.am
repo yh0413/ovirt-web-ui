@@ -25,6 +25,7 @@ EXTRA_DIST = \
 	ovirt-web-ui.spec.in \
 	README.md \
 	LICENSE \
+	babel-plugin \
 	branding \
 	src \
 	config \
@@ -38,6 +39,8 @@ EXTRA_DIST = \
 
 DISTCLEANFILES = $(PACKAGE)-$(VERSION).tar.gz \
 	aclocal.m4 \
+	config.log \
+	config.status \
 	configure \
 	install-sh \
 	missing \
@@ -96,7 +99,7 @@ all: ovirt-web-ui
 ovirt-web-ui:
 	node --version
 	$(YARN) --version
-	$(YARN) run build
+	NODE_OPTIONS=--max_old_space_size=4096 $(YARN) run build
 	cp -rpv packaging/* build/
 	mv build/static build/index.jsp build/ovirt-web-ui.config build/ovirt-web-ui.war/
 

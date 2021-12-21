@@ -5,9 +5,9 @@ import { matchRoutes } from 'react-router-config'
 import { withRouter } from 'react-router-dom'
 import { push } from 'connected-react-router'
 
-import { RouterPropTypeShapes } from '../propTypeShapes'
+import { RouterPropTypeShapes } from '_/propTypeShapes'
+import { changePage } from '_/actions'
 import Breadcrumb from './Breadcrumb'
-import { changePage } from '../actions'
 
 const findExactOrOnlyMatch = (branches) => {
   return branches.length === 1 ? branches[0] : branches.find(branch => branch.match.isExact) || null
@@ -42,7 +42,10 @@ class PageRouter extends React.Component {
     document.removeEventListener('keyup', this.handleKeyUp)
   }
 
-  static getDerivedStateFromProps ({ location, route, onChangePage }, { currentPath, previousPath }) {
+  static getDerivedStateFromProps (
+    { location, route, onChangePage },
+    { currentPath, previousPath }
+  ) {
     const newPath = location.pathname
     const updates = {}
 
@@ -89,6 +92,7 @@ PageRouter.propTypes = {
 
   navigationHandler: PropTypes.func.isRequired,
   onChangePage: PropTypes.func.isRequired,
+
 }
 
 /*
@@ -96,8 +100,7 @@ PageRouter.propTypes = {
  */
 export default withRouter(
   connect(
-    state => ({
-    }),
+    null,
     dispatch => ({
       navigationHandler: (newPath) => dispatch(push(newPath)),
       onChangePage: (type, id) => dispatch(changePage({ type, id })),

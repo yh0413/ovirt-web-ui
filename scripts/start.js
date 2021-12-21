@@ -1,3 +1,5 @@
+// Do this as the first thing so that any code reading it knows the right env.
+process.env.BABEL_ENV = 'development';
 process.env.NODE_ENV = 'development';
 
 var path = require('path');
@@ -16,9 +18,20 @@ var prompt = require('./utils/prompt');
 var config = require('../config/webpack.config.dev');
 var paths = require('../config/paths');
 var env = require('../config/env')
-var rimraf = require('rimraf')
 var formatMessage = require('./utils/utils').formatMessage
 var isLikelyASyntaxError = require('./utils/utils').isLikelyASyntaxError
+const fs = require('fs');
+const dotenv = require('dotenv')
+
+if (process.env.ENGINE_ENV){
+  const envFilePath = `.env.${process.env.ENGINE_ENV}`
+  const envConfig = dotenv.parse(fs.readFileSync(envFilePath))
+  console.log(chalk`{green Loaded configuration from:${envFilePath}}`);
+  for (const k in envConfig) {
+    // give higher priority to existing variables
+    process.env[k] = process.env[k] || envConfig[k]
+  }
+}
 
 // Tools like Cloud9 rely on this.
 var DEFAULT_PORT = process.env.PORT || 3000;
@@ -34,9 +47,6 @@ function clearConsole() {
 }
 
 function setupCompiler(port, protocol) {
-  // Delete flow folder, because package flow won't to do that before start
-  rimraf('/tmp/flow', function () { console.log('Flow folder deleted'); });
-
   // "Compiler" is a low-level interface to Webpack.
   // It lets us listen to some events and provide our own custom messages.
   compiler = webpack(config, handleCompile);
@@ -228,7 +238,7 @@ function runDevServer(port, protocol) {
     // to be used for HTML files, even <link href="./src/something.png"> would
     // get resolved correctly by Webpack and handled both in development and
     // in production without actually serving it by that path.
-    contentBase: [],
+    contentBase: false,
     // Enable hot reloading server. It will provide /sockjs-node/ endpoint
     // for the WebpackDevServer client so it can learn when the files were
     // updated. The WebpackDevServer client is included as an entry point
@@ -327,18 +337,19 @@ function getUserInfo (protocol, port) {
    * be disabled and hidden.
    * @type {String}
    */
-  var username = readlineSync.question(`oVirt user (${DEFAULT_USER}): `, {
+  var username = process.env.ENGINE_USER || readlineSync.question(`oVirt user (${DEFAULT_USER}): `, {
     defaultInput: DEFAULT_USER
   });
 
-  var password = readlineSync.question('oVirt password: ', {
+  var password = process.env.ENGINE_PASSWORD || readlineSync.question('oVirt password: ', {
     noEchoBack: true
   });
 
-  var domain = readlineSync.question(`oVirt domain (${DEFAULT_DOMAIN}): `, {
+  var domain = process.env.ENGINE_DOMAIN || readlineSync.question(`oVirt domain (${DEFAULT_DOMAIN}): `, {
     defaultInput: DEFAULT_DOMAIN
   });
 
+  console.log('Connecting using provided credentials...')
 
   return new Promise((resolve, reject) => {
     request(`${engineUrl}/sso/oauth/token?` +

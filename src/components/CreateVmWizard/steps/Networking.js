@@ -1,7 +1,7 @@
-import React from 'react'
+import React, { useContext } from 'react'
 import PropTypes from 'prop-types'
 import { connect } from 'react-redux'
-import { msg, enumMsg } from '_/intl'
+import { MsgContext, enumMsg, withMsg } from '_/intl'
 import { generateUnique } from '_/helpers'
 import { NIC_SHAPE } from '../dataPropTypes'
 
@@ -18,7 +18,6 @@ import {
   Button,
   DropdownKebab,
   EmptyState,
-  FieldLevelHelp,
   FormControl,
   FormGroup,
   HelpBlock,
@@ -30,24 +29,26 @@ import _TableInlineEditRow from './_TableInlineEditRow'
 import SelectBox from '_/components/SelectBox'
 
 import style from './style.css'
-import OverlayTooltip from '_/components/OverlayTooltip'
+import { Tooltip, InfoTooltip } from '_/components/tooltips'
 import { EMPTY_VNIC_PROFILE_ID } from '_/constants'
 
-const NIC_INTERFACES = createNicInterfacesList()
 const NIC_INTERFACE_DEFAULT = 'virtio'
 
 export const NicNameWithLabels = ({ id, nic }) => {
+  const { msg } = useContext(MsgContext)
   const idPrefix = `${id}-nic-${nic.id}`
-  return <React.Fragment>
-    <span id={`${idPrefix}-name`}>{ nic.name }</span>
-    { nic.isFromTemplate &&
-      <OverlayTooltip id={`${idPrefix}-template-defined-badge`} tooltip={msg.templateDefined()} placement='top'>
-        <Label id={`${idPrefix}-from-template`} className={style['nic-label']}>
-          T
-        </Label>
-      </OverlayTooltip>
-    }
-  </React.Fragment>
+  return (
+    <>
+      <span id={`${idPrefix}-name`}>{ nic.name }</span>
+      { nic.isFromTemplate && (
+        <Tooltip id={`${idPrefix}-template-defined-badge`} tooltip={msg.templateDefined()}>
+          <Label id={`${idPrefix}-from-template`} className={style['nic-label']}>
+            T
+          </Label>
+        </Tooltip>
+      )}
+    </>
+  )
 }
 NicNameWithLabels.propTypes = {
   id: PropTypes.string,
@@ -79,6 +80,10 @@ class Networking extends React.Component {
     this.onEditNic = this.onEditNic.bind(this)
     this.rowRenderProps = this.rowRenderProps.bind(this)
     this.isVnicNameUniqueAndValid = this.isVnicNameUniqueAndValid.bind(this)
+
+    const { msg, locale } = this.props
+    const NIC_INTERFACES = createNicInterfacesList(msg)
+    props.onUpdate({ valid: true })
 
     this.state = {
       editingErrors: {
@@ -161,7 +166,7 @@ class Networking extends React.Component {
                 onChange={e => this.handleCellChange(rowData, 'name', e.target.value)}
               />
               {!validAndUniqueName &&
-              <HelpBlock>{msg.createVmWizardNetVNICNameRules()}</HelpBlock>
+                <HelpBlock>{msg.createVmWizardNetVNICNameRules()}</HelpBlock>
               }
             </FormGroup>
           )
@@ -189,7 +194,7 @@ class Networking extends React.Component {
             cluster,
             vnicProfiles,
           } = props
-          const vnicList = createVNicProfileList(vnicProfiles, { dataCenterId, cluster })
+          const vnicList = createVNicProfileList(vnicProfiles, { locale, msg }, { dataCenterId, cluster })
           const row = this.state.editing[rowData.id]
 
           return (
@@ -252,41 +257,46 @@ class Networking extends React.Component {
               const templateDefined = rowData.isFromTemplate
               const kebabId = `${idPrefix}-kebab-${rowData.name}`
 
-              return <React.Fragment>
-                { hideKebab && <Table.Cell /> }
+              return (
+                <>
+                  { hideKebab && <Table.Cell /> }
 
-                { templateDefined &&
-                  <Table.Cell className={style['nic-from-template']}>
-                    <FieldLevelHelp content={msg.createVmNetNoEditHelpMessage()} inline />
-                  </Table.Cell>
-                }
+                  { templateDefined && (
+                    <Table.Cell className={style['nic-from-template']}>
+                      <InfoTooltip id={`${kebabId}-info-tooltip`} tooltip={msg.createVmNetNoEditHelpMessage()} />
+                    </Table.Cell>
+                  )}
 
-                { !hideKebab && !templateDefined &&
-                  <Table.Cell className={style['kebab-menu-cell']}>
-                    <DropdownKebab
-                      id={kebabId}
-                      className={style['action-kebab']}
-                      title={msg.createVmNetEditActions()}
-                      pullRight
-                    >
-                      <MenuItem
-                        id={`${kebabId}-edit`}
-                        onSelect={() => { this.inlineEditController.onActivate({ rowIndex, rowData }) }}
-                        disabled={actionsDisabled}
-                      >
-                        {msg.edit()}
-                      </MenuItem>
-                      <MenuItem
-                        id={`${kebabId}-delete`}
-                        onSelect={() => { this.onDeleteRow(rowData) }}
-                        disabled={actionsDisabled}
-                      >
-                        {msg.delete()}
-                      </MenuItem>
-                    </DropdownKebab>
-                  </Table.Cell>
-                }
-              </React.Fragment>
+                  { !hideKebab && !templateDefined && (
+                    <Table.Cell className={style['kebab-menu-cell']}>
+                      <Tooltip id={`tooltip-${kebabId}`} tooltip={msg.createVmNetEditActions()} placement={'bottom'}>
+                        <div className={style['kebab-menu-wrapper']}>
+                          <DropdownKebab
+                            id={kebabId}
+                            className={style['action-kebab']}
+                            pullRight
+                          >
+                            <MenuItem
+                              id={`${kebabId}-edit`}
+                              onSelect={() => { this.inlineEditController.onActivate({ rowIndex, rowData }) }}
+                              disabled={actionsDisabled}
+                            >
+                              {msg.edit()}
+                            </MenuItem>
+                            <MenuItem
+                              id={`${kebabId}-delete`}
+                              onSelect={() => { this.onDeleteRow(rowData) }}
+                              disabled={actionsDisabled}
+                            >
+                              {msg.delete()}
+                            </MenuItem>
+                          </DropdownKebab>
+                        </div>
+                      </Tooltip>
+                    </Table.Cell>
+                  )}
+                </>
+              )
             },
           ],
         },
@@ -414,19 +424,21 @@ class Networking extends React.Component {
       cluster,
       nics,
       vnicProfiles,
+      msg,
+      locale,
     } = this.props
 
-    const vnicList = createVNicProfileList(vnicProfiles, { dataCenterId, cluster })
+    const vnicList = createVNicProfileList(vnicProfiles, { locale, msg }, { dataCenterId, cluster })
     const enableCreate = vnicList.length > 0 && Object.keys(this.state.editing).length === 0
 
-    const nicList = sortNicsDisks([...nics])
-      .concat(this.state.creating ? [ this.state.editing[this.state.creating] ] : [])
+    const nicList = sortNicsDisks([...nics], locale)
+      .concat(this.state.creating ? [this.state.editing[this.state.creating]] : [])
       .map(nic => ({
         ...(this.state.editing[nic.id] ? this.state.editing[nic.id] : nic),
         vnic: vnicList.find(vnic => vnic.id === nic.vnicProfileId)
           ? vnicList.find(vnic => vnic.id === nic.vnicProfileId).value
           : msg.createVmNetUnknownVnicProfile(),
-        device: enumMsg('NicInterface', nic.deviceType),
+        device: enumMsg('NicInterface', nic.deviceType, msg),
       }))
     const components = {
       body: {
@@ -435,46 +447,52 @@ class Networking extends React.Component {
     }
     this.components = this.components || components // if the table should (re)render the value of this.components should be undefined
 
-    return <div className={style['settings-container']} id={idPrefix}>
-      { nicList.length === 0 && <React.Fragment>
-        <EmptyState>
-          <EmptyState.Icon />
-          <EmptyState.Title>{msg.createVmNetEmptyTitle()}</EmptyState.Title>
-          <EmptyState.Info>{msg.createVmNetEmptyInfo()}</EmptyState.Info>
-          <EmptyState.Action>
-            <Button bsStyle='primary' bsSize='large' onClick={this.onCreateNic}>
-              {msg.nicActionCreateNew()}
-            </Button>
-          </EmptyState.Action>
-        </EmptyState>
-      </React.Fragment> }
+    return (
+      <div className={style['settings-container']} id={idPrefix}>
+        { nicList.length === 0 && (
+          <>
+            <EmptyState>
+              <EmptyState.Icon />
+              <EmptyState.Title>{msg.createVmNetEmptyTitle()}</EmptyState.Title>
+              <EmptyState.Info>{msg.createVmNetEmptyInfo()}</EmptyState.Info>
+              <EmptyState.Action>
+                <Button bsStyle='primary' bsSize='large' onClick={this.onCreateNic}>
+                  {msg.nicActionCreateNew()}
+                </Button>
+              </EmptyState.Action>
+            </EmptyState>
+          </>
+        ) }
 
-      { nicList.length > 0 && <React.Fragment>
-        <div className={style['action-buttons']}>
-          <Button bsStyle='default' disabled={!enableCreate} onClick={this.onCreateNic}>
-            {msg.nicActionCreateNew()}
-          </Button>
-        </div>
-        <div className={style['nic-table']}>
-          <Table.PfProvider
-            striped
-            bordered
-            hover
-            dataTable
-            inlineEdit
-            columns={this.columns}
-            components={this.components}
-          >
-            <Table.Header />
-            <Table.Body
-              rows={nicList}
-              rowKey='id'
-              onRow={(...rest) => this.rowRenderProps(nicList, ...rest)}
-            />
-          </Table.PfProvider>
-        </div>
-      </React.Fragment> }
-    </div>
+        { nicList.length > 0 && (
+          <>
+            <div className={style['action-buttons']}>
+              <Button bsStyle='default' disabled={!enableCreate} onClick={this.onCreateNic}>
+                {msg.nicActionCreateNew()}
+              </Button>
+            </div>
+            <div className={style['nic-table']}>
+              <Table.PfProvider
+                striped
+                bordered
+                hover
+                dataTable
+                inlineEdit
+                columns={this.columns}
+                components={this.components}
+              >
+                <Table.Header />
+                <Table.Body
+                  rows={nicList}
+                  rowKey='id'
+                  onRow={(...rest) => this.rowRenderProps(nicList, ...rest)}
+                />
+              </Table.PfProvider>
+            </div>
+          </>
+        ) }
+      </div>
+    )
   }
 }
 
@@ -489,6 +507,9 @@ Networking.propTypes = {
   vnicProfiles: PropTypes.object.isRequired,
 
   onUpdate: PropTypes.func.isRequired,
+
+  msg: PropTypes.object.isRequired,
+  locale: PropTypes.string.isRequired,
 }
 
 export default connect(
@@ -496,4 +517,4 @@ export default connect(
     cluster: state.clusters.get(clusterId),
     vnicProfiles: state.vnicProfiles,
   })
-)(Networking)
+)(withMsg(Networking))

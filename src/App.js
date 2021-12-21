@@ -1,45 +1,50 @@
-import React from 'react'
+import React, { useContext } from 'react'
 import PropTypes from 'prop-types'
 
 import { connect } from 'react-redux'
 import { ConnectedRouter } from 'connected-react-router'
 import { renderRoutes } from 'react-router-config'
 
-import LoadingData from './components/LoadingData'
-import OvirtApiCheckFailed from './components/OvirtApiCheckFailed'
-import SessionActivityTracker from './components/SessionActivityTracker'
-import VmsPageHeader from './components/VmsPageHeader'
-import ToastNotifications from './components/ToastNotifications'
-
-import getRoutes from './routes'
-import { fixedStrings } from './branding'
-import { msg } from '_/intl'
+import LoadingData from '_/components/LoadingData'
 import NoLogin from '_/components/NoLogin'
+import OvirtApiCheckFailed from '_/components/OvirtApiCheckFailed'
+import RefreshIntervalChangeHandler from '_/components/RefreshIntervalChangeHandler'
+import SessionActivityTracker from '_/components/SessionActivityTracker'
+import ToastNotifications from '_/components/ToastNotifications'
+import VmsPageHeader from '_/components/VmsPageHeader'
+import ConsoleNotificationsDialog from '_/components/VmActions/ConsoleNotificationsDialog'
+
+import getRoutes from '_/routes'
+import { fixedStrings } from '_/branding'
+import { MsgContext } from '_/intl'
 
 function isLoginMissing (config) {
   return !config.get('loginToken') || config.get('isTokenExpired')
 }
 
-const UnsupportedBrowser = () => (
-  <div className='unsupported-browser-container'>
-    <div className='unsupported-browser-box'>
-      <h2>
-        {msg.ieNotSupported()}
-        <br />
-        {msg.useBrowserBelow()}
-      </h2>
-      <div className='browser-suggestions'>
-        <h4>{msg.freeBrowsers()}</h4>
-        <ul>
-          <li><a href='https://www.mozilla.org/firefox/new/'>Mozilla Firefox</a></li>
-          <li><a href='https://www.microsoft.com/en-us/windows/microsoft-edge'>Microsoft Edge</a></li>
-          <li><a href='https://www.google.com/chrome/'>Google Chrome</a></li>
-          <li><a href='https://www.apple.com/safari/'>Apple Safari</a></li>
-        </ul>
+const UnsupportedBrowser = () => {
+  const { msg } = useContext(MsgContext)
+  return (
+    <div className='unsupported-browser-container'>
+      <div className='unsupported-browser-box'>
+        <h2>
+          {msg.ieNotSupported()}
+          <br />
+          {msg.useBrowserBelow()}
+        </h2>
+        <div className='browser-suggestions'>
+          <h4>{msg.freeBrowsers()}</h4>
+          <ul>
+            <li><a href='https://www.mozilla.org/firefox/new/'>Mozilla Firefox</a></li>
+            <li><a href='https://www.microsoft.com/en-us/windows/microsoft-edge'>Microsoft Edge</a></li>
+            <li><a href='https://www.google.com/chrome/'>Google Chrome</a></li>
+            <li><a href='https://www.apple.com/safari/'>Apple Safari</a></li>
+          </ul>
+        </div>
       </div>
     </div>
-  </div>
-)
+  )
+}
 
 function isBrowserUnsupported () {
   return (navigator.userAgent.indexOf('MSIE') !== -1) || (!!document.documentMode === true)
@@ -50,6 +55,7 @@ function isBrowserUnsupported () {
  * the various dialogs and error messages that may be needed.
  */
 const App = ({ history, config, appReady, activateSessionTracker }) => {
+  const { msg } = useContext(MsgContext)
   if (isBrowserUnsupported()) {
     return <UnsupportedBrowser />
   }
@@ -65,8 +71,10 @@ const App = ({ history, config, appReady, activateSessionTracker }) => {
         <OvirtApiCheckFailed />
         <LoadingData />
         <ToastNotifications />
+        <ConsoleNotificationsDialog/>
         { appReady && activateSessionTracker && <SessionActivityTracker /> }
         { appReady && renderRoutes(getRoutes()) }
+        { appReady && <RefreshIntervalChangeHandler /> }
       </div>
     </ConnectedRouter>
   )

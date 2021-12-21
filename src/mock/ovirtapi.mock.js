@@ -1,39 +1,23 @@
 /* eslint-disable prefer-promise-reject-errors */
 import AppConfiguration from '../config'
 import { vms, disks, api } from './data.mock'
-import MainApi from '../ovirtapi'
 
 let OvirtApi = {}
 OvirtApi = {
   // ----
-  /**
-   * @param vm - Single entry from oVirt REST /api/vms
-   * @returns {} - Internal representation of a VM
-   */
-  vmToInternal: MainApi.vmToInternal,
-  /**
-   *
-   * @param attachment - single entry from vms/[VM_ID]/diskattachments
-   * @param disk - disk corresponding to the attachment
-   * @returns {} - Internal representation of a single VM disk
-   */
-  diskToInternal: MainApi.diskToInternal,
-  iconToInternal: MainApi.iconToInternal,
-  consolesToInternal: MainApi.consolesToInternal,
-  // ----
   login ({ credentials }) {
     return Promise.resolve({
-      'access_token': '123456789',
-      'scope': 'ovirt-app-api ovirt-ext=token-info:authz-search ovirt-ext=token-info:public-authz-search ovirt-ext=token-info:validate',
-      'exp': '1493207433000',
-      'token_type': 'bearer',
+      access_token: '123456789',
+      scope: 'ovirt-app-api ovirt-ext=token-info:authz-search ovirt-ext=token-info:public-authz-search ovirt-ext=token-info:validate',
+      exp: '1493207433000',
+      token_type: 'bearer',
     })
   },
   getOvirtApiMeta () {
     return Promise.resolve(api)
   },
   getVm ({ vmId }) {
-    for (let i in vms.vm) {
+    for (const i in vms.vm) {
       if (vms.vm[i].id === vmId) {
         return Promise.resolve(vms.vm[i])
       }
@@ -66,7 +50,7 @@ OvirtApi = {
     return OvirtApi._httpGet({ url: `${AppConfiguration.applicationContext}/api/icons/${id}` })
   },
   diskattachments ({ vmId }) {
-    for (let i in vms.vm) {
+    for (const i in vms.vm) {
       if (vms.vm[i].id === vmId) {
         return Promise.resolve(vms.vm[i].diskattachments)
       }
@@ -74,7 +58,7 @@ OvirtApi = {
     return Promise.reject('')
   },
   disk ({ diskId }) {
-    for (let i in disks.disk) {
+    for (const i in disks.disk) {
       if (disks.disk[i].id === diskId) {
         return Promise.resolve(disks.disk[i])
       }
@@ -82,7 +66,7 @@ OvirtApi = {
     return Promise.reject('')
   },
   consoles ({ vmId }) {
-    for (let i in vms.vm) {
+    for (const i in vms.vm) {
       if (vms.vm[i].id === vmId) {
         return Promise.resolve({ graphics_console: vms.vm[i].graphics_console })
       }
@@ -90,9 +74,9 @@ OvirtApi = {
     return Promise.reject('')
   },
   console ({ vmId, consoleId }) {
-    for (let i in vms.vm) {
+    for (const i in vms.vm) {
       if (vms.vm[i].id === vmId) {
-        for (let j in vms.vm[i].graphics_console) {
+        for (const j in vms.vm[i].graphics_console) {
           if (vms.vm[i].graphics_console[j].id === consoleId) {
             return Promise.resolve({ graphics_console: vms.vm[i].graphics_console })
           }
@@ -105,3 +89,4 @@ OvirtApi = {
 
 const Api = OvirtApi
 export default Api
+export * as Transforms from '../ovirtapi/transform'

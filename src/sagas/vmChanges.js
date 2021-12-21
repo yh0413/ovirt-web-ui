@@ -6,10 +6,9 @@ import Api from '_/ovirtapi'
 import * as A from '_/actions'
 import * as C from '_/constants'
 import { arrayMatch } from '_/utils'
-import { msg } from '_/intl'
 
 import { callExternalAction, delay, delayInMsSteps } from './utils'
-import { startProgress, stopProgress, addVmNic, fetchSingleVm } from './index'
+import { addVmNic, fetchAndPutSingleVm } from './index'
 import { createDiskForVm } from './disks'
 
 function* createMemoryPolicyFromCluster (clusterId, memorySize) {
@@ -31,7 +30,7 @@ function* createMemoryPolicyFromCluster (clusterId, memorySize) {
  * @see http://ovirt.github.io/ovirt-engine-api-model/master/#types/vm
  */
 function* composeAndCreateVm ({ payload: { basic, nics, disks }, meta: { correlationId } }) {
-  const osType = yield select(state => state.operatingSystems.getIn([ basic.operatingSystemId, 'name' ]))
+  const osType = yield select(state => state.operatingSystems.getIn([basic.operatingSystemId, 'name']))
   const memory = basic.memory * (1024 ** 2) // input in MiB, stored in bytes
   const memoryPolicy = yield createMemoryPolicyFromCluster(basic.clusterId, memory)
 
@@ -60,55 +59,34 @@ function* composeAndCreateVm ({ payload: { basic, nics, disks }, meta: { correla
       }
       : {},
   }
+  let vmRequiresClone = false
 
   // Provision = ISO (setup boot to CD and "insert" the CD after the VM is created)
   let cdrom
   if (basic.provisionSource === 'iso') {
-    // TODO: Verify that we absolutely need to create VM then change CD.
-    cdrom = {
-      fileId: basic.isoImage,
-    }
+    const [vmUpdates, cdrom_] = yield composeProvisionSourceIso({ vm, basic })
 
-    merge(vm, {
-      template: { id: yield select(state => state.config.get('blankTemplateId')) },
-
-      os: {
-        boot: {
-          devices: {
-            device: [ 'cdrom' ],
-          },
-        },
-      },
-    })
+    cdrom = cdrom_
+    merge(vm, vmUpdates)
   }
 
   // Provision = TEMPLATE
   if (basic.provisionSource === 'template') {
-    const template = yield select(state => state.templates.get(basic.templateId))
-    merge(vm, {
-      template: { id: template.get('id') },
+    const [vmUpdates, vmRequiresClone_] = yield composeProvisionSourceTemplate({ vm, basic, disks })
 
-      cpu: {
-        topology: (basic.cpus === template.getIn(['cpu', 'vCPUs']))
-          ? template.getIn(['cpu', 'topology']).toJS()
-          : vm.cpu.topology,
-      },
-    })
+    vmRequiresClone = vmRequiresClone_
+    merge(vm, vmUpdates)
   }
 
-  // TODO: TimeZone handling (https://github.com/oVirt/ovirt-web-ui/pull/1118)
+  const clonePermissions = basic.provisionSource === 'template'
 
   /*
    * NOTE: The VM create REST service does not handle adding NICs or Disks. Until
    *       the create service supports this, we will add Nics and Disks individually
    *       after the VM has been created and is no longer image locked.
    */
-
-  const clone = false // TODO: Clone from template based on criteria
-  const clonePermissions = basic.provisionSource === 'template'
-
   const newVmId = yield createVm(
-    A.createVm({ vm, cdrom, clone, clonePermissions, transformInput: false }, { correlationId })
+    A.createVm({ vm, cdrom, clone: vmRequiresClone, clonePermissions, transformInput: false }, { correlationId })
   )
 
   if (newVmId === -1) {
@@ -116,7 +94,7 @@ function* composeAndCreateVm ({ payload: { basic, nics, disks }, meta: { correla
   }
 
   // Wait for the VM image to be unlocked before adding NICs and Disks
-  yield waitForVmToBeUnlocked(newVmId)
+  yield waitForVmToBeUnlocked(newVmId, vmRequiresClone)
 
   // Assuming NICs cannot be added along with the VM create request, add them now
   yield all(nics.filter(nic => !nic.isFromTemplate).map(nic =>
@@ -130,26 +108,13 @@ function* composeAndCreateVm ({ payload: { basic, nics, disks }, meta: { correla
         interface: nic.deviceType,
       },
     }))
+    // TODO? toast notify that Nics have been added
   ))
 
   // Assuming Disks cannot be added along with the VM create request, add them now
   yield all(disks.filter(disk => !disk.isFromTemplate).map(disk =>
-    call(createDiskForVm, A.createDiskForVm({
-      vmId: newVmId,
-      disk: {
-        active: true,
-        bootable: disk.bootable,
-        iface: disk.iface,
-
-        name: disk.name,
-        type: 'image',
-        format: 'raw', // Match webadmin behavior, disks are created as 'raw'
-        sparse: disk.diskType === 'thin',
-        provisionedSize: disk.size,
-
-        storageDomainId: disk.storageDomainId,
-      },
-    }))
+    call(createNewDiskForNewVm, newVmId, disk)
+    // TODO? toast notify that Disks have been added
   ))
 
   // start on create, but after everything else is done...
@@ -158,15 +123,240 @@ function* composeAndCreateVm ({ payload: { basic, nics, disks }, meta: { correla
   }
 }
 
+function* composeProvisionSourceIso ({ vm, basic }) {
+  const cdrom = {
+    fileId: basic.isoImage,
+  }
+
+  const vmUpdates = {
+    template: { id: yield select(state => state.config.get('blankTemplateId')) },
+
+    os: {
+      boot: {
+        devices: {
+          device: ['cdrom'],
+        },
+      },
+    },
+  }
+
+  return [vmUpdates, cdrom]
+}
+
+function* composeProvisionSourceTemplate ({ vm, basic, disks }) {
+  const {
+    template,
+    targetCluster,
+    storageDomains,
+  } = yield select(state => ({
+    template: state.templates.get(basic.templateId),
+    targetCluster: state.clusters.get(basic.clusterId),
+    storageDomains: state.storageDomains,
+  }))
+
+  // basic info from the template
+  const vmUpdates = {
+    template: { id: template.get('id') },
+
+    cpu: {
+      topology: (basic.cpus === template.getIn(['cpu', 'vCPUs']))
+        ? template.getIn(['cpu', 'topology']).toJS()
+        : vm.cpu.topology,
+    },
+  }
+
+  // handle the template disks along with VM creation - new disks are added after the VM is created
+  /*
+   * Each template defined VM disk will be evaluated and the composed VM will be adjusted
+   * as needed to handle:
+   *   - creating the VM's disk in a storage domain different from the one
+   *     defined in the template
+   *   - changing the VM disk's attributes considering the details below
+   *
+   * The creation of VM disks from the template disks depends on at least the following:
+   *   - the __type__/optimizedFor value of the template
+   *   - the type/__optimizedFor__ value of the VM
+   *   - the 'storage allocation' of template(1)
+   *   - the template disk's __format__ and sometimes __sparse__
+   *   - values of the target storage domain of the VM disk(2):
+   *     - __storageType__
+   *     - the default disk format to sparse mapping
+   *   - the __isCopyPreallocatedFileBasedDiskSupported__ value of the template or
+   *     the target cluster (depending on the type of storage domain)
+   *
+   * (1) - The 'storage allocation' maps to the behavior of the resource allocation tab
+   *       on webadmin's create new vm from a template modal and has the values of 'thin'
+   *       or 'clone'.  This value is not editable or visible to the user in this app.
+   *         Thin:  The VM's disk will be create as qcow/sparse and will operate as an
+   *                overlay on top of the existing template disk's image.  This is only
+   *                available if all of the VM's disks can be created in the same
+   *                storage domain as their corresponding template disks.
+   *         Clone: The VM's disks will be fully independent clones of the template
+   *                disks.  When cloning, a new VM will not be able to run until the
+   *                storage domains finish cloning the template disk images.  If any
+   *                disk needs to be cloned, all disks will be cloned.  A change in
+   *                storage domain for any disk will force the storage allocation to
+   *                clone.
+   *
+   * (2) - In this app, a VM's disk can change storage domain only if the template's disk
+   *       resides in a storage domain where the user does not have permissions to create
+   *       a disk.
+   *
+   * See: http://ovirt.github.io/ovirt-engine-api-model/master/#services/vms/methods/add
+   */
+  const disksFromTemplate = disks
+    .filter(disk => disk.isFromTemplate)
+    .map(disk => ({
+      disk,
+      templateDisk: template.get('disks').find(tdisk => tdisk.get('id') === disk.id),
+    }))
+
+  const vmIsDesktop = basic.optimizedFor === 'desktop'
+  const storageAllocation =
+    vmIsDesktop &&
+    disksFromTemplate.every(({ disk, templateDisk }) => disk.storageDomainId === templateDisk.get('storageDomainId'))
+      ? 'thin'
+      : 'clone'
+
+  const diskChanges = disksFromTemplate.map(({ disk, templateDisk }) => {
+    const changes = {}
+
+    // did the disk's storage domain change?
+    if (disk.storageDomainId !== templateDisk.get('storageDomainId')) {
+      changes.storage_domains = {
+        storage_domain: [{ id: disk.storageDomainId }],
+      }
+    }
+
+    // figure out the disk's attributes
+    const targetSD = storageDomains.get(disk.storageDomainId)
+    Object.assign(
+      changes,
+      determineTemplateDiskFormatAndSparse({
+        templateDisk,
+        template,
+        vmIsDesktop,
+        vmStorageAllocationIsThin: storageAllocation === 'thin',
+        targetSD,
+        targetCluster,
+      })
+    )
+
+    return Object.keys(changes).length === 0
+      ? false
+      : { id: disk.id, ...changes }
+  })
+
+  // if we change ANY disk on the template, we need to send in ALL disks
+  if (diskChanges.some(Boolean)) {
+    vmUpdates.disk_attachments = {
+      disk_attachment: diskChanges.map(
+        (changed, index) => ({
+          disk: changed || { id: disksFromTemplate[index].disk.id },
+        })
+      ),
+    }
+  }
+
+  return [vmUpdates, storageAllocation === 'clone']
+}
+
+/**
+ * Select the disk's __format__ and __sparse__ based on where the disk is coming from,
+ * what changes the user has made to the VM from the template, and the disk's target
+ * storage domain.
+ *
+ * Template values and Webadmin choices in the new VM modal flow down ultimately to the
+ * template defined VM disk's specific attributes.  The default 'storage allocation' maps
+ * based on the template optimizedFor, VM optimizedFor and target storage domain.  This
+ * chart captures what format and sparse values are produced in webadmin:
+ *
+ *   [Template OptimizedFor -> VM OptimizedFor -> SD changes? ~~ Storage allocation ... disk format/sparse outcome]
+ *   (* = default)
+ *
+ *   Server  -> Server*  -> No SD changes* ~~ Clone ... format stays the same, sparse stays the same
+ *   Server  -> Server*  -> SD changes     ~~ Clone ... format stays the same, sparse changes as necessary based on format + SD
+ *   Server  -> Desktop  -> No SD changes* ~~ Thin  ... format: cow, sparse: true
+ *   Server  -> Desktop  -> SD changes     ~~ Clone ... format: cow, sparse: true (Thin settings retained)
+ *   Desktop -> Desktop* -> No SD changes* ~~ Thin  ... format: cow, sparse: true
+ *   Desktop -> Desktop* -> SD changes     ~~ Clone ... format: cow, sparse: true (Thin settings retained)
+ *   Desktop -> Server   -> No SD changes* ~~ Clone ... format: cow, sparse: true (Thin settings retained)
+ *   Desktop -> Server   -> SD changes     ~~ Clone ... format: cow, sparse: true (Thin settings retained)
+ *
+ * @param templateDisk Disk as defined in the template
+ * @param template Template the VM is being created from
+ * @param templateIsDesktop Is the template type 'desktop'?
+ * @param vmIsDesktop Is the VM being created with user selectable type/optimizedFor 'desktop'?
+ * @param vmStorageAllocationIsThin Is the net storage allocation for this VM 'thin'?
+ * @param targetSD The storage domain where the disk will be created
+ * @param targetCluster The cluster where the VM will be created
+ */
+export function determineTemplateDiskFormatAndSparse ({
+  templateDisk,
+  template,
+  templateIsDesktop = template.get('type') === 'desktop',
+  vmIsDesktop,
+  vmStorageAllocationIsThin,
+  targetSD,
+  targetCluster,
+}) {
+  const attributes = {}
+  const isCopyPreallocatedFileBasedDiskSupported =
+    template.get('isCopyPreallocatedFileBasedDiskSupported') ?? targetCluster.get('isCopyPreallocatedFileBasedDiskSupported')
+
+  if (vmStorageAllocationIsThin || templateIsDesktop || vmIsDesktop) {
+    attributes.format = 'cow'
+    attributes.sparse = targetSD.get('templateDiskFormatToSparse')('cow', isCopyPreallocatedFileBasedDiskSupported, templateDisk)
+  } else {
+    const format = templateDisk.get('format')
+    const sparse =
+      targetSD.get('id') === templateDisk.get('storageDomainId')
+        ? templateDisk.get('sparse')
+        : targetSD.get('templateDiskFormatToSparse')(format, isCopyPreallocatedFileBasedDiskSupported, templateDisk)
+
+    attributes.format = format
+    attributes.sparse = sparse
+  }
+
+  return (templateDisk.get('format') === attributes.format && templateDisk.get('sparse') === attributes.sparse)
+    ? {}
+    : attributes
+}
+
+/**
+ * Create a new disk for a newly created vm.
+ */
+function* createNewDiskForNewVm (newVmId, disk) {
+  const storageDomainDiskAttributes = yield select(({ storageDomains }) =>
+    storageDomains.getIn([disk.storageDomainId, 'diskTypeToDiskAttributes', disk.diskType]).toJS()
+  )
+
+  yield createDiskForVm(A.createDiskForVm({
+    vmId: newVmId,
+    disk: {
+      active: true,
+      bootable: disk.bootable,
+      iface: 'virtio_scsi',
+
+      name: disk.name,
+      type: 'image', // we only know how to create 'image' type disks
+      provisionedSize: disk.size,
+
+      ...storageDomainDiskAttributes,
+      storageDomainId: disk.storageDomainId,
+    },
+  }))
+}
+
 /*
  * Create a new VM, fetch it and optionally push the user to the VM detail page
  * for the new VM.
  */
 function* createVm (action) {
-  const correlationId = action.meta && action.meta.correlationId
+  const correlationId = action?.meta?.correlationId
 
   // Create the VM
-  const createVmResult = yield callExternalAction('createVm', Api.addNewVm, action)
+  const createVmResult = yield callExternalAction(Api.addNewVm, action)
   const successCreate = !!createVmResult.id
 
   // Log the success of the action via correlation id
@@ -184,7 +374,6 @@ function* createVm (action) {
       vmId: createVmResult.id,
       cdrom: action.payload.cdrom,
       current: false,
-      updateVm: false, // don't auto-refresh the VM since it hasn't been loaded yet
     }, {
       correlationId,
     }))
@@ -197,7 +386,7 @@ function* createVm (action) {
     if (action.payload.pushToDetailsOnSuccess) {
       yield put(A.navigateToVmDetails(`/vm/${vmId}`))
     } else {
-      yield fetchSingleVm(A.getSingleVm({ vmId }))
+      yield fetchAndPutSingleVm(A.getSingleVm({ vmId }))
     }
     return vmId
   }
@@ -205,19 +394,25 @@ function* createVm (action) {
   return -1
 }
 
-function* waitForVmToBeUnlocked (vmId) {
+/*
+ * Poll at intervals and return when either the number of polling steps has completed,
+ * or when the VM's image is no longer locked.  If the VM is being cloned, use 200 steps.
+ * If not, use 20 steps.  Cloning requires a full copy of the Template disks, so the
+ * process may take a long time.
+ */
+function* waitForVmToBeUnlocked (vmId, isCloning = false) {
   const vm = yield select(state => state.vms.getIn(['vms', vmId]))
   if (vm.get('status') === 'image_locked') {
-    for (let delayMs of delayInMsSteps()) {
+    for (const delayMs of delayInMsSteps(isCloning ? 20 : 200)) {
       yield delay(delayMs)
 
-      const check = yield callExternalAction('getVm', Api.getVm, { payload: { vmId } }, true)
-      if (check && check.id === vmId && check.status !== 'image_locked') {
+      const check = yield callExternalAction(Api.getVm, { payload: { vmId } }, true)
+      if (check?.id === vmId && check?.status !== 'image_locked') {
         break
       }
     }
 
-    yield fetchSingleVm(A.getSingleVm({ vmId }))
+    yield fetchAndPutSingleVm(A.getSingleVm({ vmId }))
   }
 }
 
@@ -231,11 +426,11 @@ function* waitForVmToBeUnlocked (vmId) {
 function* editVm (action) {
   const { payload: { vm } } = action
   const vmId = vm.id
-  const onlyNeedChangeCd = vm && arrayMatch(Object.keys(vm), [ 'id', 'cdrom' ])
+  const onlyNeedChangeCd = vm && arrayMatch(Object.keys(vm), ['id', 'cdrom'])
 
   const editVmResult = onlyNeedChangeCd
     ? {}
-    : yield callExternalAction('editVm', Api.editVm, action)
+    : yield callExternalAction(Api.editVm, action)
 
   let commitError = editVmResult.error
   if (!commitError && vm.cdrom) {
@@ -243,18 +438,17 @@ function* editVm (action) {
       vmId,
       cdrom: vm.cdrom,
       current: action.payload.changeCurrentCd,
-      updateVm: false, // A.selectVmDetail will update the VMs info with all of the edits
     }))
 
     commitError = changeCdResult.error
   }
 
+  // if edit call succeed, deep fetch refresh the VM with the updates applied
   if (!commitError) {
-    // deep fetch refresh the VM with any/all updates applied
-    yield put(A.selectVmDetail({ vmId }))
+    yield put(A.getSingleVm({ vmId }))
   }
 
-  if (action.meta && action.meta.correlationId) {
+  if (action?.meta?.correlationId) {
     yield put(A.setVmActionResult({
       vmId,
       correlationId: action.meta.correlationId,
@@ -268,16 +462,9 @@ function* editVm (action) {
 }
 
 function* changeVmCdRom (action) {
-  const result = yield callExternalAction('changeCdRom', Api.changeCdRom, action)
+  const result = yield callExternalAction(Api.changeCdRom, action)
 
-  if (!result.error && action.payload.updateVm) {
-    yield put(A.setVmCdRom({
-      vmId: action.payload.vmId,
-      cdrom: Api.cdRomToInternal(result),
-    }))
-  }
-
-  if (action.meta && action.meta.correlationId) {
+  if (action?.meta?.correlationId) {
     yield put(A.setVmActionResult({
       vmId: action.payload.vmId,
       correlationId: action.meta.correlationId,
@@ -288,67 +475,127 @@ function* changeVmCdRom (action) {
   return result
 }
 
-function* shutdownVm (action) {
-  yield startProgress({ vmId: action.payload.vmId, name: 'shutdown' })
-  const result = yield callExternalAction('shutdown', Api.shutdown, action)
-  const vmName = yield select(state => state.vms.getIn([ 'vms', action.payload.vmId, 'name' ]))
-  if (result.status === 'complete') {
-    yield put(A.addUserMessage({ message: msg.actionFeedbackShutdownVm({ VmName: vmName }), type: 'success' }))
+export function* startProgress ({ vmId, poolId, name }) {
+  if (vmId) {
+    yield put(A.vmActionInProgress({ vmId, name, started: true }))
+  } else {
+    yield put(A.poolActionInProgress({ poolId, name, started: true }))
   }
-  yield stopProgress({ vmId: action.payload.vmId, name: 'shutdown', result })
+}
+
+export function* stopProgress ({ vmId, poolId, name, result }) {
+  if (result?.status === 'complete' && result?.job?.id) {
+    // If the result is complete, refresh the entity to grab the current status
+    if (vmId) {
+      yield put(A.getSingleVm({ vmId, shallowFetch: true }))
+    } else {
+      yield put(A.getSinglePool({ poolId }))
+    }
+
+    // If the result has an async job associated with it, wait
+    // for the job to finish then refresh the VM or Pool again
+    const jobId = result.job.id
+
+    for (const delayMs of delayInMsSteps()) {
+      yield delay(delayMs)
+
+      const check = yield callExternalAction(Api.getJob, { payload: { jobId } }, true)
+      if (check.end_time) {
+        break
+      }
+    }
+
+    if (vmId) {
+      yield put(A.getSingleVm({ vmId }))
+    } else {
+      yield put(A.getSinglePool({ poolId }))
+    }
+  }
+
+  if (vmId) {
+    yield put(A.vmActionInProgress({ vmId, name, started: false }))
+  } else {
+    yield put(A.poolActionInProgress({ poolId, name, started: false }))
+  }
+}
+
+function* shutdownVm (action) {
+  const vmId = action.payload.vmId
+  yield startProgress({ vmId, name: 'shutdown' })
+
+  const result = yield callExternalAction(Api.shutdown, action)
+  if (result.status === 'complete') {
+    const vmName = yield select(state => state.vms.getIn(['vms', action.payload.vmId, 'name']))
+    yield put(A.addUserMessage({ messageDescriptor: { id: 'actionFeedbackShutdownVm', params: { VmName: vmName } }, type: 'success' }))
+  }
+
+  yield stopProgress({ vmId, name: 'shutdown', result })
 }
 
 function* restartVm (action) {
-  yield startProgress({ vmId: action.payload.vmId, name: 'restart' })
-  const result = yield callExternalAction('restart', Api.restart, action)
-  const vmName = yield select(state => state.vms.getIn([ 'vms', action.payload.vmId, 'name' ]))
+  const vmId = action.payload.vmId
+  yield startProgress({ vmId, name: 'restart' })
+
+  const result = yield callExternalAction(Api.restart, action)
   if (result.status === 'complete') {
-    yield put(A.addUserMessage({ message: msg.actionFeedbackRestartVm({ VmName: vmName }), type: 'success' }))
+    const vmName = yield select(state => state.vms.getIn(['vms', action.payload.vmId, 'name']))
+    yield put(A.addUserMessage({ messageDescriptor: { id: 'actionFeedbackRestartVm', params: { VmName: vmName } }, type: 'success' }))
   }
-  yield stopProgress({ vmId: action.payload.vmId, name: 'restart', result })
+
+  yield stopProgress({ vmId, name: 'restart', result })
 }
 
 function* suspendVm (action) {
-  yield startProgress({ vmId: action.payload.vmId, name: 'suspend' })
-  const result = yield callExternalAction('suspend', Api.suspend, action)
-  const vmName = yield select(state => state.vms.getIn([ 'vms', action.payload.vmId, 'name' ]))
+  const vmId = action.payload.vmId
+  yield startProgress({ vmId, name: 'suspend' })
+
+  const result = yield callExternalAction(Api.suspend, action)
   if (result.status === 'pending') {
-    yield put(A.addUserMessage({ message: msg.actionFeedbackSuspendVm({ VmName: vmName }), type: 'success' }))
+    const vmName = yield select(state => state.vms.getIn(['vms', action.payload.vmId, 'name']))
+    yield put(A.addUserMessage({ messageDescriptor: { id: 'actionFeedbackSuspendVm', params: { VmName: vmName } }, type: 'success' }))
   }
-  yield stopProgress({ vmId: action.payload.vmId, name: 'suspend', result })
+
+  yield stopProgress({ vmId, name: 'suspend', result })
 }
 
 function* startVm (action) {
-  yield startProgress({ vmId: action.payload.vmId, name: 'start' })
-  const result = yield callExternalAction('start', Api.start, action)
-  const vmName = yield select(state => state.vms.getIn([ 'vms', action.payload.vmId, 'name' ]))
+  const vmId = action.payload.vmId
+  yield startProgress({ vmId, name: 'start' })
+
+  const result = yield callExternalAction(Api.start, action)
   // TODO: check status at refresh --> conditional refresh wait_for_launch
   if (result.status === 'complete') {
-    yield put(A.addUserMessage({ message: msg.actionFeedbackStartVm({ VmName: vmName }), type: 'success' }))
+    const vmName = yield select(state => state.vms.getIn(['vms', action.payload.vmId, 'name']))
+    yield put(A.addUserMessage({ messageDescriptor: { id: 'actionFeedbackStartVm', params: { VmName: vmName } }, type: 'success' }))
   }
-  yield stopProgress({ vmId: action.payload.vmId, name: 'start', result })
+
+  yield stopProgress({ vmId, name: 'start', result })
 }
 
 function* startPool (action) {
-  yield startProgress({ poolId: action.payload.poolId, name: 'start' })
-  const result = yield callExternalAction('startPool', Api.startPool, action)
-  const poolName = yield select(state => state.vms.getIn([ 'pools', action.payload.poolId, 'name' ]))
+  const poolId = action.payload.poolId
+  yield startProgress({ poolId, name: 'start' })
+
+  const result = yield callExternalAction(Api.startPool, action)
   if (result.status === 'complete') {
-    yield put(A.addUserMessage({ message: msg.actionFeedbackAllocateVm({ poolname: poolName }), type: 'success' }))
+    const poolName = yield select(state => state.vms.getIn(['pools', action.payload.poolId, 'name']))
+    yield put(A.addUserMessage({ messageDescriptor: { id: 'actionFeedbackAllocateVm', params: { poolname: poolName } }, type: 'success' }))
   }
-  yield stopProgress({ poolId: action.payload.poolId, name: 'start', result })
+
+  yield stopProgress({ poolId, name: 'start', result })
 }
 
 function* removeVm (action) {
-  yield startProgress({ vmId: action.payload.vmId, name: 'remove' })
-  const result = yield callExternalAction('remove', Api.remove, action)
+  const vmId = action.payload.vmId
+  yield startProgress({ vmId, name: 'remove' })
 
+  const result = yield callExternalAction(Api.remove, action)
   if (result.status === 'complete') {
-    // TODO: Remove the VM from the store so we don't see it on the list page!
+    yield put(A.updateVms({ removeVmIds: [vmId] }))
     yield put(push('/'))
   }
 
-  yield stopProgress({ vmId: action.payload.vmId, name: 'remove', result })
+  yield stopProgress({ vmId, name: 'remove', result })
 }
 
 export default [
@@ -360,6 +607,8 @@ export default [
   takeLatest(C.REMOVE_VM, removeVm),
 
   // VM Status Changes
+  takeEvery(C.ACTION_IN_PROGRESS_START, function* (action) { yield startProgress(action.payload) }),
+  takeEvery(C.ACTION_IN_PROGRESS_STOP, function* (action) { yield stopProgress(action.payload) }),
   takeEvery(C.SHUTDOWN_VM, shutdownVm),
   takeEvery(C.RESTART_VM, restartVm),
   takeEvery(C.START_VM, startVm),

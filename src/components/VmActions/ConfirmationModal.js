@@ -1,7 +1,7 @@
-import React from 'react'
+import React, { useContext } from 'react'
 import PropsTypes from 'prop-types'
 import { Modal, Icon } from 'patternfly-react'
-import { msg } from '_/intl'
+import { MsgContext } from '_/intl'
 
 const btnPropType = PropsTypes.shape({
   title: PropsTypes.string,
@@ -9,6 +9,7 @@ const btnPropType = PropsTypes.shape({
 })
 
 const ConfirmationModal = ({ show, title, confirm, body, subContent, onClose, extra, accessibleDescription }) => {
+  const { msg } = useContext(MsgContext)
   return (
     <Modal onHide={onClose} show={show} className='message-dialog-pf' aria-describedby={accessibleDescription}>
       <Modal.Header>
@@ -23,17 +24,21 @@ const ConfirmationModal = ({ show, title, confirm, body, subContent, onClose, ex
       <Modal.Body>
         {
           typeof body === 'string'
-            ? <React.Fragment>
-              <Icon type='pf' name='warning-triangle-o' />
-              <div id={accessibleDescription}>
-                <p className='lead'>
-                  { body }
-                </p>
-                {
-                  subContent && <p>{ subContent }</p>
+            ? (
+              <>
+                <Icon type='pf' name='warning-triangle-o' />
+                <div id={accessibleDescription}>
+                  <p className='lead'>
+                    { body }
+                  </p>
+                  {
+                  subContent && typeof subContent === 'string'
+                    ? <p>{ subContent }</p>
+                    : subContent
                 }
-              </div>
-            </React.Fragment>
+                </div>
+              </>
+            )
             : body
         }
       </Modal.Body>
@@ -54,12 +59,12 @@ ConfirmationModal.propTypes = {
   accessibleDescription: PropsTypes.string,
   confirm: PropsTypes.shape({
     title: PropsTypes.string,
-    type: PropsTypes.oneOf([ 'primary', 'success', 'info', 'warning', 'danger' ]),
+    type: PropsTypes.oneOf(['primary', 'success', 'info', 'warning', 'danger']),
     onClick: PropsTypes.func,
   }),
   extra: btnPropType,
   body: PropsTypes.oneOfType([PropsTypes.node, PropsTypes.string]).isRequired,
-  subContent: PropsTypes.string,
+  subContent: PropsTypes.oneOfType([PropsTypes.node, PropsTypes.string]),
 }
 
 export default ConfirmationModal

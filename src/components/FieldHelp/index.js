@@ -5,7 +5,7 @@ import $ from 'jquery'
 
 import { Popover, OverlayTrigger } from 'react-bootstrap'
 
-import { msg } from '_/intl'
+import { withMsg } from '_/intl'
 import style from './style.css'
 
 /**
@@ -18,6 +18,7 @@ class FieldHelp extends React.Component {
     this.state = { style: null, placement: 'top' }
     this.position = null
   }
+
   componentDidMount () {
     const position = ReactDOM.findDOMNode(this).getBoundingClientRect()
     this.setState({ position })
@@ -32,23 +33,26 @@ class FieldHelp extends React.Component {
       const parentPosition = parent.get(0).getBoundingClientRect()
       const maxHeight = position.top - parentPosition.top
       if (maxHeight > 80) {
-        popoverStyle['maxHeight'] = maxHeight
+        popoverStyle.maxHeight = maxHeight
       } else {
         placement = 'bottom'
       }
 
-      popoverStyle['maxWidth'] = parentPosition.right - position.left
-      popoverStyle['maxWidth'] = popoverStyle['maxWidth'] > 250 ? 250 : popoverStyle['maxWidth']
+      popoverStyle.maxWidth = parentPosition.right - position.left
+      popoverStyle.maxWidth = popoverStyle.maxWidth > 250 ? 250 : popoverStyle.maxWidth
     }
     this.setState({ style: popoverStyle, placement })
   }
+
   render () {
+    const { msg } = this.props
     const tooltip = this.props.tooltip || msg.clickForHelp()
 
     const popover = (
       <Popover id='popover-positioned-top' style={this.state.style} className={style['field-help-min-width']} title={this.props.title}>
         {this.props.content}
-      </Popover>)
+      </Popover>
+    )
 
     const container = this.props.container === null ? undefined : this.props.container || this
     return (
@@ -69,6 +73,7 @@ FieldHelp.propTypes = {
   tooltip: PropTypes.string, // tooltip shown when hovering the text
   children: PropTypes.any,
   container: PropTypes.any,
+  msg: PropTypes.object.isRequired,
 }
 
-export default FieldHelp
+export default withMsg(FieldHelp)

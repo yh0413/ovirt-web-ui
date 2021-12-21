@@ -1,7 +1,7 @@
 import React from 'react'
 import PropTypes from 'prop-types'
 import { Alert, Card, CardBody } from 'patternfly-react'
-import { msg } from '_/intl'
+import { withMsg } from '_/intl'
 
 import styles from './style.css'
 
@@ -48,7 +48,7 @@ class VmDetailsContainer extends React.Component {
   }
 
   render () {
-    const { vm } = this.props
+    const { vm, msg } = this.props
 
     return (
       <Grid className={styles['details-container']}>
@@ -58,7 +58,7 @@ class VmDetailsContainer extends React.Component {
           )}
         </NavigationPrompt>
 
-        {vm.get('nextRunExists') &&
+        {vm.get('nextRunExists') && (
           <Row>
             <Col>
               <Card>
@@ -68,7 +68,7 @@ class VmDetailsContainer extends React.Component {
               </Card>
             </Col>
           </Row>
-        }
+        )}
 
         <Row>
           <Col cols={4} className={styles['col-overview']}><OverviewCard vm={vm} onEditChange={(isEdit, isDirty) => this.handleEditChange('over', isEdit, isDirty)} /></Col>
@@ -86,8 +86,10 @@ class VmDetailsContainer extends React.Component {
     )
   }
 }
+
 VmDetailsContainer.propTypes = {
   vm: PropTypes.object,
+  msg: PropTypes.object.isRequired,
 }
 
-export default VmDetailsContainer
+export default withMsg(VmDetailsContainer)

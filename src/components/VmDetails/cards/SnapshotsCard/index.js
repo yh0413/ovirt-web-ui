@@ -1,8 +1,8 @@
-import React from 'react'
+import React, { useContext } from 'react'
 import PropTypes from 'prop-types'
 import { connect } from 'react-redux'
 
-import { msg } from '_/intl'
+import { MsgContext } from '_/intl'
 import BaseCard from '../../BaseCard'
 import style from './style.css'
 
@@ -11,6 +11,7 @@ import SnapshotItem from './SnapshotItem'
 import { PendingTaskTypes } from '_/reducers/pendingTasks'
 
 const DOWN_STATUS = 'down'
+const RUNNING_STATUS = 'up'
 
 const Snapshots = ({
   snapshots,
@@ -21,15 +22,18 @@ const Snapshots = ({
   beingRestored,
   isVmDown,
   canUserManipulateSnapshot,
+  isVmRunning,
 }) => {
   const isVmInPreview = !!snapshots.find(snapshot => snapshot.get('status') === 'in_preview')
   const isVmLocked = !!snapshots.find(snapshot => snapshot.get('status') === 'locked')
   const isActionDisabled = isVmInPreview || beingCreated || beingRestored || beingDeleted || isVmLocked || !canUserManipulateSnapshot
   return (
-    <React.Fragment>
-      { canUserManipulateSnapshot && <div className={style['snapshot-create']}>
-        <NewSnapshotModal vmId={vmId} disabled={isActionDisabled} idPrefix={`${idPrefix}-new-snapshot`} />
-      </div> }
+    <>
+      { canUserManipulateSnapshot && (
+        <div className={style['snapshot-create']}>
+          <NewSnapshotModal vmId={vmId} disabled={isActionDisabled} idPrefix={`${idPrefix}-new-snapshot`} isVmRunning={isVmRunning} />
+        </div>
+      ) }
       {
         snapshots.sort((a, b) => b.get('date') - a.get('date')).map((snapshot) => (
           <SnapshotItem
@@ -43,7 +47,7 @@ const Snapshots = ({
           />
         ))
       }
-    </React.Fragment>
+    </>
   )
 }
 Snapshots.propTypes = {
@@ -54,6 +58,7 @@ Snapshots.propTypes = {
   beingRestored: PropTypes.bool,
   beingDeleted: PropTypes.bool,
   isVmDown: PropTypes.bool,
+  isVmRunning: PropTypes.bool,
   canUserManipulateSnapshot: PropTypes.bool,
 }
 
@@ -69,6 +74,7 @@ const ConnectedSnapshots = connect(
  * List of Snapshots taken of a VM
  */
 const SnapshotsCard = ({ vm }) => {
+  const { msg } = useContext(MsgContext)
   const snapshots = vm.get('snapshots', []).filter((s) => !s.get('isActive'))
   const idPrefix = 'vmdetail-snapshots'
 
@@ -86,6 +92,7 @@ const SnapshotsCard = ({ vm }) => {
         canUserManipulateSnapshot={vm.get('canUserManipulateSnapshots')}
         idPrefix={idPrefix}
         isVmDown={vm.get('status') === DOWN_STATUS}
+        isVmRunning={vm.get('status') === RUNNING_STATUS}
       />
     </BaseCard>
   )

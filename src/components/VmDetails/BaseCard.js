@@ -15,6 +15,7 @@ import {
 
 import style from './style.css'
 import CardEditButton from './CardEditButton'
+import { Tooltip } from '_/components/tooltips'
 
 /**
  * Base VM details card.  Support common layouts and view vs edit modes.
@@ -76,8 +77,10 @@ class BaseCard extends React.Component {
 
   renderChildren (childProps) {
     const children = this.props.children || noop
-    return typeof children === 'function' ? children(childProps)
-      : React.isValidElement(children) ? React.cloneElement(children, childProps)
+    return typeof children === 'function'
+      ? children(childProps)
+      : React.isValidElement(children)
+        ? React.cloneElement(children, childProps)
         : children
   }
 
@@ -93,6 +96,7 @@ class BaseCard extends React.Component {
       className = '',
       disableSaveButton = false,
       disableTooltip = undefined,
+      editTooltipPlacement = 'top',
     } = this.props
     const editing = editMode === undefined ? this.state.edit : editMode
     const hasHeading = !!title
@@ -111,6 +115,7 @@ class BaseCard extends React.Component {
               editEnabled={editing}
               onClick={this.clickEdit}
               id={`${idPrefix}-button-edit`}
+              placement={editTooltipPlacement}
             />
             <CardTitle>
               {hasIcon && <Icon type={icon.type} name={icon.name} className={style['base-card-title-icon']} />}
@@ -129,6 +134,7 @@ class BaseCard extends React.Component {
               editEnabled={editing}
               onClick={this.clickEdit}
               id={`${idPrefix}-button-edit`}
+              placement={editTooltipPlacement}
             />
           )}
 
@@ -160,13 +166,14 @@ BaseCard.propTypes = {
   editMode: PropTypes.bool,
   editable: PropTypes.bool,
   disableSaveButton: PropTypes.bool,
-  editTooltip: PropTypes.string,
-  disableTooltip: PropTypes.string,
+  editTooltip: PropTypes.oneOfType([Tooltip.propTypes.tooltip]),
+  disableTooltip: PropTypes.oneOfType([Tooltip.propTypes.tooltip]),
+  editTooltipPlacement: Tooltip.propTypes.placement,
 
   onStartEdit: PropTypes.func,
   onCancel: PropTypes.func,
   onSave: PropTypes.func,
-  children: PropTypes.oneOfType([ PropTypes.func, PropTypes.node ]).isRequired,
+  children: PropTypes.oneOfType([PropTypes.func, PropTypes.node]).isRequired,
 }
 BaseCard.defaultProps = {
   onStartEdit: noop,

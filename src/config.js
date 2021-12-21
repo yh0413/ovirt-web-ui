@@ -1,7 +1,8 @@
 import $ from 'jquery'
 
-import { getURLQueryParameterByName } from '_/helpers'
-import { setLogDebug } from './logger'
+import { setLogDebug } from '_/logger'
+import { DEFAULT_ARCH } from '_/constants'
+import { VNC, NATIVE } from '_/constants/console'
 
 const CONFIG_URL = '/ovirt-engine/web-ui/ovirt-web-ui.config'
 
@@ -12,18 +13,35 @@ const AppConfiguration = {
   applicationLogoutURL: '', // url to invalidate the user's SSO token ('' skips SSO token invalidation)
   pageLimit: 20,
   schedulerFixedDelayInSeconds: 60,
+  notificationSnoozeDurationInMinutes: 10,
+  showNotificationsDefault: true,
+  persistLocale: true,
+  smartcardSpice: true,
 
   consoleClientResourcesURL: 'https://www.ovirt.org/documentation/admin-guide/virt/console-client-resources/',
   cockpitPort: '9090',
-
-  queryParams: { // from URL
-    locale: null,
-  },
 }
 
-export function readConfiguration () {
-  parseQueryParams()
+export const DefaultEngineOptions = Object.seal({
+  MaxNumOfVmSockets: 16,
+  MaxNumOfCpuPerSocket: 254,
+  MaxNumOfThreadsPerCpu: 8,
+  MaxNumOfVmCpusPerArch: `{${DEFAULT_ARCH}=1}`,
 
+  SpiceUsbAutoShare: true,
+  getUSBFilter: {},
+
+  UserSessionTimeOutInterval: 30,
+
+  DefaultGeneralTimeZone: 'Etc/GMT',
+  DefaultWindowsTimeZone: 'GMT Standard Time',
+
+  WebSocketProxy: null,
+  ClientModeConsoleDefault: VNC,
+  ClientModeVncDefault: NATIVE,
+})
+
+export function readConfiguration () {
   return new Promise((resolve, reject) => {
     $.ajax({
       url: CONFIG_URL,
@@ -31,7 +49,7 @@ export function readConfiguration () {
         Object.assign(AppConfiguration, JSON.parse(result))
       },
       error: (result) => {
-        console.log(`Failed to load production configuration, assuming development mode.`)
+        console.log('Failed to load production configuration, assuming development mode.')
       },
       complete: () => {
         setLogDebug(AppConfiguration.debug)
@@ -40,12 +58,6 @@ export function readConfiguration () {
       async: true,
     })
   })
-}
-
-function parseQueryParams () {
-  // TODO: align this with intl/index.js:getLocaleFromUrl()
-  AppConfiguration.queryParams.locale = getURLQueryParameterByName('locale')
-  console.log('parseQueryParams, provided locale: ', AppConfiguration.queryParams.locale)
 }
 
 export default AppConfiguration

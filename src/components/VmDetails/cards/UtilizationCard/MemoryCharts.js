@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useContext } from 'react'
 import PropTypes from 'prop-types'
 import {
   CardBody,
@@ -12,7 +12,7 @@ import {
 } from 'patternfly-react'
 import DonutChart from './UtilizationCharts/DonutChart'
 import AreaChart from './UtilizationCharts/AreaChart'
-import { msg } from '_/intl'
+import { MsgContext } from '_/intl'
 import { round, floor } from '_/utils'
 import { userFormatOfBytes } from '_/helpers'
 
@@ -31,12 +31,13 @@ import NoLiveData from './NoLiveData'
  *       currently used data should work for VMs with and without the guest agent.
  */
 const MemoryCharts = ({ memoryStats, isRunning, id }) => {
-  const available = isRunning ? memoryStats.free.datum : memoryStats.installed.datum
-  const used = !isRunning ? 0 : memoryStats.installed.datum - memoryStats.free.datum
+  const { msg } = useContext(MsgContext)
+  const available = isRunning ? memoryStats.free.firstDatum : memoryStats.installed.firstDatum
+  const used = !isRunning ? 0 : memoryStats.installed.firstDatum - memoryStats.free.firstDatum
 
   const usedFormated = userFormatOfBytes(used, null, 1)
   const availableFormated = userFormatOfBytes(available, null, 1)
-  const totalFormated = userFormatOfBytes(memoryStats.installed.datum, null, 1)
+  const totalFormated = userFormatOfBytes(memoryStats.installed.firstDatum, null, 1)
 
   // NOTE: Memory history comes sorted from newest to oldest
   const history = ((memoryStats['usage.history'] && memoryStats['usage.history'].datum) || []).reverse()
@@ -50,52 +51,52 @@ const MemoryCharts = ({ memoryStats, isRunning, id }) => {
       <CardTitle>{msg.utilizationCardTitleMemory()}</CardTitle>
       <CardBody>
         { !isRunning && <NoLiveData id={`${id}-no-live-data`} /> }
-        { isRunning &&
-        <React.Fragment>
-          <UtilizationCardDetails>
-            <UtilizationCardDetailsCount id={`${id}-available`}>
-              {msg.utilizationCardUnitNumber({
-                number: floor(availableFormated.number, availableMemoryPercision),
-                storageUnits: availableFormated.suffix !== totalFormated.suffix && availableFormated.suffix,
-              })}
-            </UtilizationCardDetailsCount>
-            <UtilizationCardDetailsDesc>
-              <UtilizationCardDetailsLine1>{msg.utilizationCardAvailable()}</UtilizationCardDetailsLine1>
-              <UtilizationCardDetailsLine2 id={`${id}-total`}>
-                {msg.utilizationCardOf({
-                  number: round(totalFormated.number, 0),
-                  storageUnits: totalFormated.suffix,
+        { isRunning && (
+          <>
+            <UtilizationCardDetails>
+              <UtilizationCardDetailsCount id={`${id}-available`}>
+                {msg.utilizationCardUnitNumber({
+                  number: floor(availableFormated.number, availableMemoryPercision),
+                  storageUnits: availableFormated.suffix !== totalFormated.suffix && availableFormated.suffix,
                 })}
-              </UtilizationCardDetailsLine2>
-            </UtilizationCardDetailsDesc>
-          </UtilizationCardDetails>
-          <DonutChart
-            id={`${id}-donut-chart`}
-            data={[
-              {
-                x: msg.utilizationCardLegendUsed(),
-                y: used,
-                label: `${msg.utilizationCardLegendUsed()} - ${usedFormated.rounded} ${usedFormated.suffix}`,
-              },
-              {
-                x: msg.utilizationCardLegendAvailable(),
-                y: available,
-                label: `${msg.utilizationCardLegendAvailable()} - ${availableFormated.rounded} ${availableFormated.suffix}`,
-              },
-            ]}
-            subTitle={msg.utilizationCardUnitUsed({ storageUnit: usedFormated.suffix })}
-            title={`${usedFormated.rounded}`}
-          />
-          { history.length === 0 && <NoHistoricData id={`${id}-no-historic-data`} /> }
-          { history.length > 0 &&
-            <AreaChart
-              id={`${id}-history-chart`}
-              data={history.map((item, i) => ({ x: i + 1, y: item, name: 'memory' }))}
-              labels={datum => `${datum.y}%`}
+              </UtilizationCardDetailsCount>
+              <UtilizationCardDetailsDesc>
+                <UtilizationCardDetailsLine1>{msg.utilizationCardAvailable()}</UtilizationCardDetailsLine1>
+                <UtilizationCardDetailsLine2 id={`${id}-total`}>
+                  {msg.utilizationCardOf({
+                    number: round(totalFormated.number, 0),
+                    storageUnits: totalFormated.suffix,
+                  })}
+                </UtilizationCardDetailsLine2>
+              </UtilizationCardDetailsDesc>
+            </UtilizationCardDetails>
+            <DonutChart
+              id={`${id}-donut-chart`}
+              data={[
+                {
+                  x: msg.utilizationCardLegendUsed(),
+                  y: used,
+                  label: `${msg.utilizationCardLegendUsed()}: ${usedFormated.rounded} ${usedFormated.suffix}`,
+                },
+                {
+                  x: msg.utilizationCardLegendAvailable(),
+                  y: available,
+                  label: `${msg.utilizationCardLegendAvailable()}: ${availableFormated.rounded} ${availableFormated.suffix}`,
+                },
+              ]}
+              subTitle={msg.utilizationCardUnitUsed({ storageUnit: usedFormated.suffix })}
+              title={`${usedFormated.rounded}`}
             />
-          }
-        </React.Fragment>
-        }
+            { history.length === 0 && <NoHistoricData id={`${id}-no-historic-data`} /> }
+            { history.length > 0 && (
+              <AreaChart
+                id={`${id}-history-chart`}
+                data={history.map((item, i) => ({ x: i + 1, y: item, name: 'memory' }))}
+                labels={datum => `${datum.y}%`}
+              />
+            )}
+          </>
+        )}
       </CardBody>
     </UtilizationCard>
   )

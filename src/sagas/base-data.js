@@ -1,38 +1,35 @@
 import Api, { Transforms } from '_/ovirtapi'
-import { put, select, takeLatest } from 'redux-saga/effects'
+import { put, select, all, call } from 'redux-saga/effects'
 import {
   canUserUseTemplate,
   canUserUseCluster,
   canUserUseVnicProfile,
 } from '_/utils'
 
-import { callExternalAction, entityPermissionsToUserPermits } from './utils'
+import {
+  callExternalAction,
+  entityPermissionsToUserPermits,
+  mapCpuOptions,
+  mapConfigKeyVersion,
+} from './utils'
 
 import {
   setClusters,
   setHosts,
   setOperatingSystems,
   setTemplates,
+  setUser,
   setUserGroups,
   setVnicProfiles,
 } from '_/actions'
 
-import {
-  GET_ALL_CLUSTERS,
-  GET_ALL_HOSTS,
-  GET_ALL_OS,
-  GET_ALL_TEMPLATES,
-  GET_ALL_VNIC_PROFILES,
-  GET_USER_GROUPS,
-} from '_/constants'
-
 import { EVERYONE_GROUP_ID } from './index'
 import { fetchUnknownIcons } from './osIcons'
 
-export function* fetchAllClusters (action) {
-  const clusters = yield callExternalAction('getAllClusters', Api.getAllClusters, action)
+export function* fetchAllClusters () {
+  const clusters = yield callExternalAction(Api.getAllClusters)
 
-  if (clusters && clusters['cluster']) {
+  if (clusters && clusters.cluster) {
     const clustersInternal = clusters.cluster.map(
       cluster => Transforms.Cluster.toInternal({ cluster })
     )
@@ -43,14 +40,20 @@ export function* fetchAllClusters (action) {
       cluster.canUserUseCluster = canUserUseCluster(cluster.userPermits)
     }
 
+    // Map cluster attribute derived config values to the clusters
+    for (const cluster of clustersInternal) {
+      cluster.cpuOptions = yield mapCpuOptions(cluster.version, cluster.architecture)
+      cluster.isCopyPreallocatedFileBasedDiskSupported = yield mapConfigKeyVersion('CopyPreallocatedFileBasedDiskSupported', cluster.version, true)
+    }
+
     yield put(setClusters(clustersInternal))
   }
 }
 
-export function* fetchAllHosts (action) {
-  const hosts = yield callExternalAction('getAllHosts', Api.getAllHosts, action)
+export function* fetchAllHosts () {
+  const hosts = yield callExternalAction(Api.getAllHosts)
 
-  if (hosts && hosts['host']) {
+  if (hosts && hosts.host) {
     const hostsInternal = hosts.host.map(
       host => Transforms.Host.toInternal({ host })
     )
@@ -59,10 +62,10 @@ export function* fetchAllHosts (action) {
   }
 }
 
-export function* fetchAllOS (action) {
-  const operatingSystems = yield callExternalAction('getAllOperatingSystems', Api.getAllOperatingSystems, action)
+export function* fetchAllOS () {
+  const operatingSystems = yield callExternalAction(Api.getAllOperatingSystems)
 
-  if (operatingSystems && operatingSystems['operating_system']) {
+  if (operatingSystems && operatingSystems.operating_system) {
     const operatingSystemsInternal = operatingSystems.operating_system.map(
       os => Transforms.OS.toInternal({ os })
     )
@@ -72,10 +75,10 @@ export function* fetchAllOS (action) {
   }
 }
 
-export function* fetchAllTemplates (action) {
-  const templates = yield callExternalAction('getAllTemplates', Api.getAllTemplates, action)
+export function* fetchAllTemplates () {
+  const templates = yield callExternalAction(Api.getAllTemplates)
 
-  if (templates && templates['template']) {
+  if (templates && templates.template) {
     const templatesInternal = templates.template.map(
       template => Transforms.Template.toInternal({ template })
     )
@@ -86,14 +89,26 @@ export function* fetchAllTemplates (action) {
       template.canUserUseTemplate = canUserUseTemplate(template.userPermits)
     }
 
+    // Map template attribute derived config values to the templates
+    for (const template of templatesInternal) {
+      const customCompatVer = template.customCompatibilityVersion
+      if (customCompatVer) {
+        template.cpuOptions = yield mapCpuOptions(customCompatVer, template.cpu.arch)
+        template.isCopyPreallocatedFileBasedDiskSupported = yield mapConfigKeyVersion('CopyPreallocatedFileBasedDiskSupported', customCompatVer, null)
+      } else {
+        template.cpuOptions = null
+        template.isCopyPreallocatedFileBasedDiskSupported = null
+      }
+    }
+
     yield put(setTemplates(templatesInternal))
   }
 }
 
-export function* fetchAllVnicProfiles (action) {
-  const vnicProfiles = yield callExternalAction('getAllVnicProfiles', Api.getAllVnicProfiles, action)
+export function* fetchAllVnicProfiles () {
+  const vnicProfiles = yield callExternalAction(Api.getAllVnicProfiles)
 
-  if (vnicProfiles && vnicProfiles['vnic_profile']) {
+  if (vnicProfiles && vnicProfiles.vnic_profile) {
     const vnicProfilesInternal = vnicProfiles.vnic_profile.map(
       vnicProfile => Transforms.VNicProfile.toInternal({ vnicProfile })
     )
@@ -108,23 +123,58 @@ export function* fetchAllVnicProfiles (action) {
   }
 }
 
-export function* fetchUserGroups () {
-  const userId = yield select(state => state.config.getIn(['user', 'id']))
-  const groups = yield callExternalAction('groups', Api.groups, { payload: { userId } })
+export function* fetchCurrentUser () {
+  const userId = yield select((state) => state.config.getIn(['user', 'id']))
+  const user = yield callExternalAction(Api.user, {
+    payload: {
+      userId,
+    },
+  })
 
-  if (groups && groups['group']) {
-    const groupsInternal = groups.group.map(group => group.id)
-    groupsInternal.push(EVERYONE_GROUP_ID)
-
-    yield put(setUserGroups({ groups: groupsInternal }))
-  }
+  yield put(setUser({ user: Transforms.User.toInternal({ user }) }))
 }
 
-export default [
-  takeLatest(GET_ALL_CLUSTERS, fetchAllClusters),
-  takeLatest(GET_ALL_HOSTS, fetchAllHosts),
-  takeLatest(GET_ALL_OS, fetchAllOS),
-  takeLatest(GET_ALL_TEMPLATES, fetchAllTemplates),
-  takeLatest(GET_ALL_VNIC_PROFILES, fetchAllVnicProfiles),
-  takeLatest(GET_USER_GROUPS, fetchUserGroups),
-]
+/**
+ * Fetch the user's ovirt known groups by fetching and cross referencing the users's
+ * domain groups with the ovirt known groups.  Permission checks require ovirt group
+ * uuids, not the domain entity ids.
+ *
+ * Users can belong to more domain groups than ovirt groups.  The ovirt group fetch will
+ * return all groups the user can SEE but does not contain any membership information.
+ * The cross reference will turn domain groups membership into ovirt group membership.
+ * ovirt group uuids are stored in state.
+ */
+export function* fetchUserGroups () {
+  const userId = yield select(state => state.config.getIn(['user', 'id']))
+
+  const {
+    domainGroups,
+    ovirtGroups,
+  } = yield all({
+    domainGroups: call(function* (userId) {
+      const { group: groups = [] } = yield callExternalAction(Api.userDomainGroups, { payload: { userId } })
+      return groups.map(group => group.id)
+    }, userId),
+
+    ovirtGroups: call(function* () {
+      const { group: groups = [] } = yield callExternalAction(Api.groups)
+      return groups.map(group => ({
+        domainEntryId: group.domain_entry_id,
+        ovirtId: group.id,
+      }))
+    }),
+  })
+
+  // Cross reference domainGroups with ovirtGroups to hold on to ovirt group
+  // ids that the user is a member of
+  const groupIds = []
+  groupIds.push(EVERYONE_GROUP_ID)
+
+  ovirtGroups.forEach(ovirtGroup => {
+    if (domainGroups.includes(ovirtGroup.domainEntryId)) {
+      groupIds.push(ovirtGroup.ovirtId)
+    }
+  })
+
+  yield put(setUserGroups({ groups: groupIds }))
+}

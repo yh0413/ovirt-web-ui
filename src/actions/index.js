@@ -1,30 +1,33 @@
-import AppConfiguration from '../config'
 import {
   APP_CONFIGURED,
   CHANGE_PAGE,
   CHECK_TOKEN_EXPIRED,
   GET_BY_PAGE,
   GET_OPTION,
-  GET_USER_GROUPS,
+  MANUAL_REFRESH,
   SET_ADMINISTRATOR,
   SET_CPU_TOPOLOGY_OPTIONS,
   SET_CURRENT_PAGE,
   SET_DEFAULT_TIMEZONE,
+  SET_GLOBAL_DEFAULT_CONSOLE,
+  SET_GLOBAL_DEFAULT_VNC_MODE,
   SET_USB_AUTOSHARE,
   SET_USB_FILTER,
   SET_USER_FILTER_PERMISSION,
   SET_USER_GROUPS,
   SET_USER_SESSION_TIMEOUT_INTERVAL,
+  SET_USER,
   SET_WEBSOCKET,
   SHOW_TOKEN_EXPIRED_MSG,
-  START_SCHEDULER_FIXED_DELAY,
-  STOP_SCHEDULER_FIXED_DELAY,
-  UPDATE_PAGING_DATA,
+  START_REFRESH_TIMER,
+  START_RESUME_NOTIFICATIONS_TIMER,
+  CANCEL_REFRESH_TIMER,
+  CANCEL_RESUME_NOTIFICATIONS_TIMER,
+  UPDATE_LAST_REFRESH,
 } from '_/constants'
 
 export * from './error'
 export * from './vm'
-export * from './visibility'
 export * from './clusters'
 export * from './hosts'
 export * from './operatingSystems'
@@ -45,15 +48,33 @@ export function appConfigured () {
   return { type: APP_CONFIGURED }
 }
 
-export function startSchedulerFixedDelay (delayInSeconds = AppConfiguration.schedulerFixedDelayInSeconds) {
+export function manualRefresh () {
+  return { type: MANUAL_REFRESH }
+}
+
+export function startRefreshTimer () {
+  return { type: START_REFRESH_TIMER }
+}
+
+export function cancelRefreshTimer () {
+  return { type: CANCEL_REFRESH_TIMER }
+}
+
+export function startResumeNotificationsTimer (delayInSeconds) {
   return {
-    type: START_SCHEDULER_FIXED_DELAY,
-    payload: { delayInSeconds },
+    type: START_RESUME_NOTIFICATIONS_TIMER,
+    payload: {
+      delayInSeconds,
+    },
   }
 }
 
-export function stopSchedulerFixedDelay () {
-  return { type: STOP_SCHEDULER_FIXED_DELAY }
+export function cancelResumeNotificationsTimer () {
+  return { type: CANCEL_RESUME_NOTIFICATIONS_TIMER }
+}
+
+export function updateLastRefresh () {
+  return { type: UPDATE_LAST_REFRESH }
 }
 
 export function setUserFilterPermission (filter) {
@@ -79,6 +100,23 @@ export function setWebsocket (websocket) {
     type: SET_WEBSOCKET,
     payload: {
       websocket,
+    },
+  }
+}
+
+export function setDefaultConsole (defaultConsole) {
+  return {
+    type: SET_GLOBAL_DEFAULT_CONSOLE,
+    payload: {
+      defaultConsole,
+    },
+  }
+}
+export function setDefaultVncMode (defaultVncMode) {
+  return {
+    type: SET_GLOBAL_DEFAULT_VNC_MODE,
+    payload: {
+      defaultVncMode,
     },
   }
 }
@@ -124,18 +162,6 @@ export function getByPage () {
   return { type: GET_BY_PAGE }
 }
 
-export function updatePagingData ({ vmsPage, vmsExpectMorePages, poolsPage, poolsExpectMorePages }) {
-  return {
-    type: UPDATE_PAGING_DATA,
-    payload: {
-      vmsPage,
-      vmsExpectMorePages,
-      poolsPage,
-      poolsExpectMorePages,
-    },
-  }
-}
-
 export function setUSBFilter ({ usbFilter }) {
   return {
     type: SET_USB_FILTER,
@@ -154,18 +180,11 @@ export function setSpiceUsbAutoShare (usbAutoshare) {
   }
 }
 
-/**
- * @param {string} optionName
- * @param {OptionVersionType} version option version
- * @param {string=} defaultValue
- */
-export function getOption (optionName, version, defaultValue) {
+export function getEngineOption (optionName) {
   return {
     type: GET_OPTION,
     payload: {
       optionName,
-      version,
-      defaultValue,
     },
   }
 }
@@ -179,23 +198,28 @@ export function setUserGroups ({ groups }) {
   }
 }
 
-export function getUserGroups () {
-  return { type: GET_USER_GROUPS }
+export function setUser ({ user }) {
+  return {
+    type: SET_USER,
+    payload: {
+      user,
+    },
+  }
 }
 
 export function setCpuTopologyOptions ({
-  maxNumberOfSockets,
-  maxNumberOfCores,
-  maxNumberOfThreads,
-  maxNumOfVmCpus,
+  maxNumOfSockets,
+  maxNumOfCores,
+  maxNumOfThreads,
+  maxNumOfVmCpusPerArch,
 }) {
   return {
     type: SET_CPU_TOPOLOGY_OPTIONS,
     payload: {
-      maxNumberOfSockets,
-      maxNumberOfCores,
-      maxNumberOfThreads,
-      maxNumOfVmCpus,
+      maxNumOfSockets,
+      maxNumOfCores,
+      maxNumOfThreads,
+      maxNumOfVmCpusPerArch,
     },
   }
 }

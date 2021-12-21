@@ -5,6 +5,7 @@ import type {
   NicType,
   SnapshotType,
   VmType,
+  ActionResponseType,
 } from './types'
 
 import Selectors from '../selectors'
@@ -12,6 +13,7 @@ import AppConfiguration from '../config'
 
 import {
   addHttpListener as transportAddHttpListener,
+  updateLocale as transportUpdateLocale,
   assertLogin,
   httpGet,
   httpPost,
@@ -28,33 +30,7 @@ const zeroUUID: string = '00000000-0000-0000-0000-000000000000'
 
 const OvirtApi = {
   addHttpListener: transportAddHttpListener,
-
-  //
-  //
-  // ---- Data transform functions (API -> internal, internal -> API)
-  //
-  //
-  poolToInternal: Transforms.Pool.toInternal,
-
-  diskToInternal: Transforms.DiskAttachment.toInternal,
-
-  nicToInternal: Transforms.Nic.toInternal,
-
-  sessionsToInternal: Transforms.VmSessions.toInternal,
-
-  iconToInternal: Transforms.Icon.toInternal,
-
-  cdRomToInternal: Transforms.CdRom.toInternal,
-
-  SSHKeyToInternal: Transforms.SSHKey.toInternal,
-
-  consolesToInternal: Transforms.VmConsoles.toInternal,
-
-  snapshotToInternal: Transforms.Snapshot.toInternal,
-
-  permissionsToInternal: Transforms.Permissions.toInternal,
-
-  eventToInternal: Transforms.Event.toInternal,
+  updateLocale: transportUpdateLocale,
 
   //
   //
@@ -72,10 +48,19 @@ const OvirtApi = {
     return httpGet({ url: `${AppConfiguration.applicationContext}/api/icons/${id}` })
   },
 
-  groups ({ userId }: { userId: string }): Promise<Object> {
-    assertLogin({ methodName: 'groups' })
+  user ({ userId }: { userId: string }): Promise<Object> {
+    assertLogin({ methodName: 'user' })
+    return httpGet({ url: `${AppConfiguration.applicationContext}/api/users/${userId}` })
+  },
+  userDomainGroups ({ userId }: { userId: string }): Promise<Object> {
+    assertLogin({ methodName: 'userDomainGroups' })
     return httpGet({ url: `${AppConfiguration.applicationContext}/api/users/${userId}/groups` })
   },
+  groups (): Promise<Object> {
+    assertLogin({ methodName: 'groups' })
+    return httpGet({ url: `${AppConfiguration.applicationContext}/api/groups` })
+  },
+
   getRoles (): Promise<Object> {
     assertLogin({ methodName: 'getRoles' })
     const url = `${AppConfiguration.applicationContext}/api/roles?follow=permits`
@@ -109,17 +94,10 @@ const OvirtApi = {
     return httpGet({ url })
   },
 
-  // TODO: Convert to use frontend based role to permission mapping
-  getDiskPermissions ({ id }: { id: string }): Promise<Object> {
-    assertLogin({ methodName: 'getDiskPermissions' })
-    const url = `${AppConfiguration.applicationContext}/api/disks/${id}/permissions?follow=role.permits`
-    return httpGet({ url, custHeaders: { Filter: true } })
-  },
-  // TODO: Convert to use frontend based role to permission mapping
-  getVmPermissions ({ vmId }: VmIdType): Promise<Object> {
-    assertLogin({ methodName: 'getVmPermissions' })
-    const url = `${AppConfiguration.applicationContext}/api/vms/${vmId}/permissions?follow=role.permits`
-    return httpGet({ url, custHeaders: { Filter: true } })
+  getJob ({ jobId }: { jobId: string }): Promise<Object> {
+    assertLogin({ methodName: 'getJob' })
+    const url = `${AppConfiguration.applicationContext}/api/jobs/${jobId}`
+    return httpGet({ url })
   },
 
   // ---- VM fetching
@@ -128,6 +106,7 @@ const OvirtApi = {
     let url = `${AppConfiguration.applicationContext}/api/vms/${vmId}`
     if (additional && additional.length > 0) {
       url += `?follow=${additional.join(',')}`
+      url += '&current' // performance optimization - retrieve graphic consoles from vm_dynamic
     }
     return httpGet({ url })
   },
@@ -136,6 +115,8 @@ const OvirtApi = {
     const max = count ? `;max=${count}` : ''
     const params =
       [
+        'detail=current_graphics_consoles',
+        'current', // for backward compatibility only (before 4.4.7)
         page ? 'search=' + encodeURIComponent(`SORTBY NAME ASC page ${page}`) : '',
         additional && additional.length > 0 ? 'follow=' + encodeURIComponent(`${additional.join(',')}`) : '',
       ]
@@ -186,7 +167,7 @@ const OvirtApi = {
       input,
     })
   },
-  remove ({ vmId, preserveDisks }: { vmId: string, preserveDisks: boolean }): Promise<Object> {
+  remove ({ vmId, preserveDisks }: { vmId: string, preserveDisks: boolean }): Promise<ActionResponseType> {
     assertLogin({ methodName: 'remove' })
     let url = `${AppConfiguration.applicationContext}/api/vms/${vmId}`
     if (preserveDisks) {
@@ -195,35 +176,33 @@ const OvirtApi = {
     return httpDelete({
       url,
       custHeaders: {
-        'Accept': 'application/json',
+        Accept: 'application/json',
       },
     })
   },
-  shutdown ({ vmId, force }: { vmId: string, force: boolean }): Promise<Object> {
+  shutdown ({ vmId, force }: { vmId: string, force: boolean }): Promise<ActionResponseType> {
     assertLogin({ methodName: 'shutdown' })
-    let restMethod = 'shutdown'
-    if (force) {
-      restMethod = 'stop'
-    }
+    const restMethod = force ? 'stop' : 'shutdown'
     return httpPost({
       url: `${AppConfiguration.applicationContext}/api/vms/${vmId}/${restMethod}`,
       input: '{}',
     })
   },
-  start ({ vmId }: VmIdType): Promise<Object> {
+  start ({ vmId }: VmIdType): Promise<ActionResponseType> {
     assertLogin({ methodName: 'start' })
     return httpPost({
       url: `${AppConfiguration.applicationContext}/api/vms/${vmId}/start`,
-      input: '{}' })
+      input: '{}',
+    })
   },
-  suspend ({ vmId }: VmIdType): Promise<Object> {
+  suspend ({ vmId }: VmIdType): Promise<ActionResponseType> {
     assertLogin({ methodName: 'suspend' })
     return httpPost({
       url: `${AppConfiguration.applicationContext}/api/vms/${vmId}/suspend`,
       input: '{}',
     })
   },
-  restart ({ vmId }: VmIdType): Promise<Object> { // 'force' is not exposed by oVirt API
+  restart ({ vmId }: VmIdType): Promise<ActionResponseType> {
     assertLogin({ methodName: 'restart' })
     return httpPost({
       url: `${AppConfiguration.applicationContext}/api/vms/${vmId}/reboot`,
@@ -235,7 +214,6 @@ const OvirtApi = {
   addNewSnapshot ({ vmId, snapshot }: { vmId: string, snapshot: SnapshotType }): Promise<Object> {
     assertLogin({ methodName: 'addNewSnapshot' })
     const input = JSON.stringify(Transforms.Snapshot.toApi({ snapshot }))
-    console.log(`OvirtApi.addNewSnapshot(): ${input}`)
     return httpPost({
       url: `${AppConfiguration.applicationContext}/api/vms/${vmId}/snapshots`,
       input,
@@ -272,28 +250,25 @@ const OvirtApi = {
     return httpGet({ url: `${AppConfiguration.applicationContext}/api/vms/${vmId}/snapshots` })
   },
 
-  diskattachment ({ vmId, attachmentId }: { vmId: string, attachmentId: string}): Promise<Object> {
-    assertLogin({ methodName: 'diskattachment' })
-    return httpGet({ url: `${AppConfiguration.applicationContext}/api/vms/${vmId}/diskattachments/${attachmentId}?follow=disk` })
-  },
   diskattachments ({ vmId }: VmIdType): Promise<Object> {
     assertLogin({ methodName: 'diskattachments' })
-    return httpGet({ url: `${AppConfiguration.applicationContext}/api/vms/${vmId}/diskattachments` })
+    return httpGet({ url: `${AppConfiguration.applicationContext}/api/vms/${vmId}/diskattachments?follow=disk.permissions` })
+  },
+  diskattachment ({ vmId, attachmentId }: { vmId: string, attachmentId: string}): Promise<Object> {
+    assertLogin({ methodName: 'diskattachment' })
+    return httpGet({ url: `${AppConfiguration.applicationContext}/api/vms/${vmId}/diskattachments/${attachmentId}?follow=disk.permissions` })
   },
   disk ({ diskId }: { diskId: string }): Promise<Object> {
     assertLogin({ methodName: 'disk' })
     return httpGet({ url: `${AppConfiguration.applicationContext}/api/disks/${diskId}` })
   },
 
-  consoles ({ vmId }: VmIdType): Promise<Object> {
-    assertLogin({ methodName: 'consoles' })
-    return httpGet({ url: `${AppConfiguration.applicationContext}/api/vms/${vmId}/graphicsconsoles` })
-  },
   console ({ vmId, consoleId }: { vmId: string, consoleId: string }): Promise<Object> {
     assertLogin({ methodName: 'console' })
     return httpGet({
       url: `${AppConfiguration.applicationContext}/api/vms/${vmId}/graphicsconsoles/${consoleId}`,
-      custHeaders: { Accept: 'application/x-virt-viewer', Filter: Selectors.getFilter() } })
+      custHeaders: { Accept: 'application/x-virt-viewer', Filter: Selectors.getFilter() },
+    })
   },
 
   consoleProxyTicket ({ vmId, consoleId }: { vmId: string, consoleId: string }): Promise<Object> {
@@ -433,7 +408,7 @@ const OvirtApi = {
     return httpGet({
       url: `${AppConfiguration.applicationContext}/services/files/usbfilter.txt`,
       custHeaders: {
-        'Accept': 'text/plain',
+        Accept: 'text/plain',
       },
     })
   },
@@ -481,38 +456,86 @@ const OvirtApi = {
   saveSSHKey ({ key, userId, sshId }: { key: string, userId: string, sshId: ?string }): Promise<Object> {
     assertLogin({ methodName: 'saveSSHKey' })
     const input = JSON.stringify({ content: key })
-    if (sshId !== undefined && sshId !== null) {
+    if (sshId && key) {
+      /**
+       * Update existing key.
+       * Expected result: { user: <> , content: <>, id: <>, href: <> }
+       */
       return httpPut({
         url: `${AppConfiguration.applicationContext}/api/users/${userId}/sshpublickeys/${sshId}`,
         input,
       })
+    } else if (sshId && !key) {
+      /**
+       * Delete existing key.
+       * Expected result: { status: 'complete'}
+      */
+      return httpDelete({
+        url: `${AppConfiguration.applicationContext}/api/users/${userId}/sshpublickeys/${sshId}`,
+        input: '',
+      })
     } else {
+      /**
+       * Create new key.
+       * Expected result from POST before 4.4.5 : { status: 'complete'}
+       * Expected result from 4.4.5 : { user: <> , content: <>, id: <>, href: <> }
+       *
+       * Since legacy POST method does not return the newly created key/key_id we need to
+       * fetch it imemdiately after (successful) creation.
+       */
       return httpPost({
         url: `${AppConfiguration.applicationContext}/api/users/${userId}/sshpublickeys`,
         input,
+      }).then(({ content, id }) => {
+        if (content && id) {
+          return ({ content, id })
+        }
+        return OvirtApi.getSSHKey({ userId })
       })
     }
   },
+
   getSSHKey ({ userId }: { userId: string }): Promise<Object> {
     assertLogin({ methodName: 'getSSHKey' })
+    // Expected result from GET: { ssh_public_key : [ { user: <> , content: <>, id: <>, href: <> }]}
+    // return empty key if there are no keys
     return httpGet({ url: `${AppConfiguration.applicationContext}/api/users/${userId}/sshpublickeys` })
+      .then(({ ssh_public_key: [firstKey = {}] = [] }) => firstKey)
   },
 
-  /**
-   * @return {Promise.<?string>} promise of option value if options exists, promise of null otherwise.
-   *                             If default value is provided, the method never returns rejected promise and the default
-   *                             value is returned in case of missing option or any error.
-   */
-  getOption ({ optionName, version, defaultValue }: {optionName: string, version: string, defaultValue?: string}): Promise<?string> {
-    const rawPromise = getOptionWithoutDefault(optionName, version)
-
-    if (!defaultValue) {
-      return rawPromise
+  persistUserOption ({ name, content, optionId, userId }: Object): Promise<Object> {
+    assertLogin({ methodName: 'persistUserOption' })
+    const input = JSON.stringify(Transforms.RemoteUserOption.toApi(name, { content }))
+    console.log('optionId', optionId, 'input', input)
+    if (optionId) {
+      // delete existing property and create a new one with updated content
+      return httpDelete({
+        url: `${AppConfiguration.applicationContext}/api/users/${userId}/options/${optionId}`,
+        input: '',
+      }).then(() => httpPost({
+        url: `${AppConfiguration.applicationContext}/api/users/${userId}/options`,
+        input,
+      }))
     }
+    return httpPost({
+      url: `${AppConfiguration.applicationContext}/api/users/${userId}/options`,
+      input,
+    })
+  },
 
-    return rawPromise
-      .then(result => result === null ? defaultValue : result)
-      .catch(() => defaultValue)
+  fetchUserOptions ({ userId }: { userId: string }): Promise<Object> {
+    assertLogin({ methodName: 'fetchUserOptions' })
+    // Expected result from GET: { user_option : [ { user: <> , content: <>, id: <>, name: <> }]}
+    return httpGet({ url: `${AppConfiguration.applicationContext}/api/users/${userId}/options` })
+      .then(({ user_option: options = [] }) => options)
+  },
+
+  deleteUserOption ({ userId, optionId }: Object): Promise<Object> {
+    assertLogin({ methodName: 'deleteUserOption' })
+    return httpDelete({
+      url: `${AppConfiguration.applicationContext}/api/users/${userId}/options/${optionId}`,
+      input: '',
+    })
   },
 
   getAllVnicProfiles (): Promise<Object> {
@@ -522,52 +545,24 @@ const OvirtApi = {
 
   getVmNic ({ vmId }: { vmId: string }): Promise<Object> {
     assertLogin({ methodName: 'getVmNic' })
-    return httpGet({ url: `${AppConfiguration.applicationContext}/api/vms/${vmId}/nics` })
+    return httpGet({ url: `${AppConfiguration.applicationContext}/api/vms/${vmId}/nics?follow=reporteddevices` })
   },
   getAllNetworks (): Promise<Object> {
     assertLogin({ methodName: 'getNetworks' })
     return httpGet({ url: `${AppConfiguration.applicationContext}/api/networks` })
   },
-}
 
-/**
- * @param {string} optionName
- * @param {'general' | '4.2' | '4.1' | '4.0'} version
- * @return {Promise.<?string>} promise of option value if options exists, promise of null otherwise.
- */
-function getOptionWithoutDefault (optionName: string, version: string): Promise<?string> {
-  assertLogin({ methodName: 'getOption' })
-  return httpGet({
-    url: `${AppConfiguration.applicationContext}/api/options/${optionName}`,
-    custHeaders: {
-      Accept: 'application/json',
-      Filter: true,
-    },
-  })
-    .then(response => {
-      let result
-      try {
-        result = response.values.system_option_value
-          .filter((valueAndVersion) => valueAndVersion.version === version)
-          .map(valueAndVersion => valueAndVersion.value)[0]
-      } catch (error) {
-        if (error instanceof TypeError) {
-          console.log(`Response to getting option '${optionName}' has unexpected format:`, response)
-        }
-        throw error
-      }
-      if (result === undefined) {
-        console.log(`Config option '${optionName}' was not found for version '${version}'.`)
-        return null
-      }
-      return result
-    }, error => {
-      if (error.status === 404) {
-        console.log(`Config option '${optionName}' doesn't exist in any version.`)
-        return null
-      }
-      throw error
+  getEngineOption ({ optionName }: { optionName: string }): Promise<Object> {
+    assertLogin({ methodName: 'getEngineOption' })
+
+    return httpGet({
+      url: `${AppConfiguration.applicationContext}/api/options/${optionName}`,
+      custHeaders: {
+        Accept: 'application/json',
+        Filter: true,
+      },
     })
+  },
 }
 
 // export default new Proxy(OvirtApi, {

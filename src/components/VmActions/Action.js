@@ -35,10 +35,12 @@ class Action extends React.Component {
       ? React.cloneElement(confirmation, { show: this.state.showModal, onClose: this.handleClose })
       : null
 
-    return <React.Fragment>
-      {trigger}
-      {confirmationDialog}
-    </React.Fragment>
+    return (
+      <>
+        {trigger}
+        {confirmationDialog}
+      </>
+    )
   }
 }
 Action.propTypes = {
@@ -68,7 +70,7 @@ const Button = ({
 
   return (
     <span className={style['full-button']}>
-      <a href='#' onClick={handleClick} className={`${className} ${style['link']}`} id={id}>
+      <a href='#' onClick={handleClick} className={`${className} ${style.link}`} id={id}>
         <span data-toggle='tooltip' data-placement='left' title={tooltip} id={`${id}-title`}>
           {shortTitle}
         </span>
@@ -85,19 +87,30 @@ Button.propTypes = {
   id: PropTypes.string.isRequired,
 }
 
-const MenuItemAction = ({ confirmation, onClick, shortTitle, icon, actionDisabled = false, ...rest }) => {
-  return <Action confirmation={confirmation}>
-    <MenuItem
-      disabled={actionDisabled}
-      onClick={(...args) => {
-        onClick && onClick(...args)
-        document.dispatchEvent(new MouseEvent('click'))
-      }}
-      {...rest}
-    >
-      <span>{shortTitle}</span> {icon}
-    </MenuItem>
-  </Action>
+const MenuItemAction = ({
+  confirmation,
+  onClick,
+  shortTitle,
+  icon,
+  actionDisabled = false,
+  id,
+  className,
+}) => {
+  return (
+    <Action confirmation={confirmation}>
+      <MenuItem
+        disabled={actionDisabled}
+        onClick={(...args) => {
+          onClick && onClick(...args)
+          document.dispatchEvent(new MouseEvent('click'))
+        }}
+        id={id}
+        className={className}
+      >
+        <span>{shortTitle}</span> {icon}
+      </MenuItem>
+    </Action>
+  )
 }
 MenuItemAction.propTypes = {
   id: PropTypes.string.isRequired,
@@ -111,23 +124,27 @@ MenuItemAction.propTypes = {
 
 const ActionButtonWraper = ({ items, confirmation, actionDisabled, shortTitle, bsStyle, ...rest }) => {
   if (items && items.filter(i => i !== null).length > 0) {
-    return <DropdownButton
-      title={shortTitle}
-      bsStyle={bsStyle}
-      id='console-selector'
-      disabled={actionDisabled}
-    >
-      {
+    return (
+      <DropdownButton
+        title={shortTitle}
+        bsStyle={bsStyle}
+        id='console-selector'
+        disabled={actionDisabled}
+      >
+        {
         items.filter(i => i !== null && !i.actionDisabled).map(
           item => <MenuItemAction key={item.id} {...item} />
         )
       }
-    </DropdownButton>
+      </DropdownButton>
+    )
   }
 
-  return <Action confirmation={confirmation} key={shortTitle}>
-    <Button actionDisabled={actionDisabled} shortTitle={shortTitle} {...rest} />
-  </Action>
+  return (
+    <Action confirmation={confirmation} key={shortTitle}>
+      <Button actionDisabled={actionDisabled} shortTitle={shortTitle} {...rest} />
+    </Action>
+  )
 }
 ActionButtonWraper.propTypes = {
   confirmation: PropTypes.node,
@@ -139,21 +156,25 @@ const ActionMenuItemWrapper = ({ id, className, items, confirmation, actionDisab
   // For console button
   if (items && items.filter(i => i !== null).length > 0) {
     if (actionDisabled) {
-      return <MenuItemAction
-        shortTitle={shortTitle}
-        id='console-selector'
-        actionDisabled
-      />
+      return (
+        <MenuItemAction
+          shortTitle={shortTitle}
+          id='console-selector'
+          actionDisabled
+        />
+      )
     } else {
-      return <React.Fragment>
-        <MenuItem divider />
-        {
+      return (
+        <>
+          <MenuItem divider />
+          {
           items.filter(i => i !== null && !i.actionDisabled).map(
             item => <MenuItemAction key={item.id} {...item} />
           )
         }
-        <MenuItem divider />
-      </React.Fragment>
+          <MenuItem divider />
+        </>
+      )
     }
   }
 
