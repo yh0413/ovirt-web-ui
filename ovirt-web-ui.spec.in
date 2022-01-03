@@ -1,5 +1,5 @@
 # Used for rpm-packaging of pre-bundled application with already resolved JS dependencies
-%global product SuperVM
+%global product HyperVM
 
 %global use_rhev %( test -z @RHEV@ && echo 1 || echo 0)
 %define debug_package %{nil}

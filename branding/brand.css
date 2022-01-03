@@ -17,7 +17,7 @@
   border-top: var(--ovirt-masthead-topborder-size) solid #00659c;
   height: var(--ovirt-masthead-height);
 
-  background-image: url(images/ovirt_masthead_bg.png);
+  background-image: url(images/ovirt_masthaed_bg.png);
   background-size: cover;
 }
 
