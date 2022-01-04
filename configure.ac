@@ -20,7 +20,7 @@ define([VERSION_MAJOR], [1])
 define([VERSION_MINOR], [7])
 define([VERSION_FIX], [2])
 define([VERSION_NUMBER], VERSION_MAJOR[.]VERSION_MINOR[.]VERSION_FIX)
-define([VERSION_RELEASE], [supervm.dev])
+define([VERSION_RELEASE], [hypervm.dev])
 
 AC_INIT([ovirt-web-ui], VERSION_NUMBER, [hypercloudsupport@tmax.co.kr])
 PACKAGE_RPM_VERSION="VERSION_NUMBER"
