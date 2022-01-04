@@ -43,9 +43,9 @@ jobs:
           sed -i "s#{{ PR_NUMBER }}##g" ${{ steps.vars.outputs.JOB_FILE }}
           sed -i "s#{{ GITHUB_REF }}#"${GITHUB_REF:11}"#g" ${{ steps.vars.outputs.JOB_FILE }}
           if [ ${{ steps.vars.outputs.BRANCH }} == 'supervm-releases' ]; then
-            sed -i "s#{{ OVIRT_REPO }}#http://172.21.7.2/hypervm/"${{ steps.vars.outputs.RELEASE }}"-rc/prolinux/8/arch/x86_64/#g" ${{ steps.vars.outputs.JOB_FILE }}
+            sed -i "s#{{ OVIRT_REPO }}#http://172.21.7.2/supervm/"${{ steps.vars.outputs.RELEASE }}"-rc/prolinux/8/arch/x86_64/#g" ${{ steps.vars.outputs.JOB_FILE }}
           else
-            sed -i "s#{{ OVIRT_REPO }}#http://172.21.7.2/hypervm/main/prolinux/8/arch/x86_64/#g" ${{ steps.vars.outputs.JOB_FILE }}
+            sed -i "s#{{ OVIRT_REPO }}#http://172.21.7.2/supervm/main/prolinux/8/arch/x86_64/#g" ${{ steps.vars.outputs.JOB_FILE }}
           fi
           sed -i "s#{{ TARGET_DIR }}#commits/"${{ steps.vars.outputs.COMMIT }}"#g" ${{ steps.vars.outputs.JOB_FILE }}
       - name: Run k8s job for rpm build if latest commit is not merge
