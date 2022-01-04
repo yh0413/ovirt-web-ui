@@ -43,9 +43,9 @@ jobs:
           sed -i "s#{{ PR_NUMBER }}##g" ${{ steps.vars.outputs.JOB_FILE }}
           sed -i "s#{{ GITHUB_REF }}#"${GITHUB_REF:11}"#g" ${{ steps.vars.outputs.JOB_FILE }}
           if [ ${{ steps.vars.outputs.BRANCH }} == 'supervm-releases' ]; then
-            sed -i "s#{{ OVIRT_REPO }}#http://172.21.7.2/supervm/"${{ steps.vars.outputs.RELEASE }}"-rc/prolinux/8/arch/x86_64/#g" ${{ steps.vars.outputs.JOB_FILE }}
+            sed -i "s#{{ OVIRT_REPO }}#http://172.21.7.2/hypervm/"${{ steps.vars.outputs.RELEASE }}"-rc/prolinux/8/arch/x86_64/#g" ${{ steps.vars.outputs.JOB_FILE }}
           else
-            sed -i "s#{{ OVIRT_REPO }}#http://172.21.7.2/supervm/main/prolinux/8/arch/x86_64/#g" ${{ steps.vars.outputs.JOB_FILE }}
+            sed -i "s#{{ OVIRT_REPO }}#http://172.21.7.2/hypervm/main/prolinux/8/arch/x86_64/#g" ${{ steps.vars.outputs.JOB_FILE }}
           fi
           sed -i "s#{{ TARGET_DIR }}#commits/"${{ steps.vars.outputs.COMMIT }}"#g" ${{ steps.vars.outputs.JOB_FILE }}
       - name: Run k8s job for rpm build if latest commit is not merge
@@ -72,9 +72,9 @@ jobs:
         run: |
           REPO_CONTAINER="`kubectl get pods -n prolinux-repo | grep ovirt-repo | awk '{print $1}'` -c createrepo"
           RUN_CMD="kubectl exec -it -n prolinux-repo ${REPO_CONTAINER} --"
-          DOWNLOAD_DST=/var/www/html/supervm/main/prolinux/8/arch/x86_64
+          DOWNLOAD_DST=/var/www/html/hypervm/main/prolinux/8/arch/x86_64
           if [ ${{ steps.vars.outputs.BRANCH }} == 'supervm-releases' ]; then
-            DOWNLOAD_DST=/var/www/html/supervm/${{ steps.vars.outputs.RELEASE }}-rc/prolinux/8/arch/x86_64/
+            DOWNLOAD_DST=/var/www/html/hypervm/${{ steps.vars.outputs.RELEASE }}-rc/prolinux/8/arch/x86_64/
           fi
           DOWNLOAD_SRC=http://172.21.7.2/github/ovirt-web-ui/commits/${{ steps.vars.outputs.COMMIT }}/
           if [ ${{ steps.vars.outputs.IS_MERGE }} == 'true' ]; then

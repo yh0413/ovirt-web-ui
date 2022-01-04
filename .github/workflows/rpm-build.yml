@@ -30,10 +30,10 @@ jobs:
           sed -i "s#{{ GITHUB_REF }}##g" ${{ steps.vars.outputs.JOB_FILE }}
           BRANCH=$(echo $GITHUB_BASE_REF | awk 'BEGIN { FS = "/" } ; { print $1 }')
           if [ ${BRANCH} == 'supervm-main' ]; then
-            sed -i "s#{{ OVIRT_REPO }}#http://172.21.7.2/supervm/main/prolinux/8/arch/x86_64/#g" ${{ steps.vars.outputs.JOB_FILE }}
+            sed -i "s#{{ OVIRT_REPO }}#http://172.21.7.2/hypervm/main/prolinux/8/arch/x86_64/#g" ${{ steps.vars.outputs.JOB_FILE }}
           else
             RELEASE=$(echo $GITHUB_BASE_REF | awk 'BEGIN { FS = "/" } ; { print $2 }')
-            sed -i "s#{{ OVIRT_REPO }}#http://172.21.7.2/supervm/"${RELEASE}"-rc/prolinux/8/arch/x86_64/#g" ${{ steps.vars.outputs.JOB_FILE }}
+            sed -i "s#{{ OVIRT_REPO }}#http://172.21.7.2/hypervm/"${RELEASE}"-rc/prolinux/8/arch/x86_64/#g" ${{ steps.vars.outputs.JOB_FILE }}
           fi
           sed -i "s#{{ TARGET_DIR }}##g" ${{ steps.vars.outputs.JOB_FILE }}
       - name: Run ovirt-web-ui build job
